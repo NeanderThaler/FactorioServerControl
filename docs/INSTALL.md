@@ -82,7 +82,9 @@ ansible-vault edit vault.yml
 ```
 
 Set a FUI password of at least 12 characters and a signing key of at least 32
-characters. Generate the signing key with:
+characters. An explicitly empty FUI password disables authentication and
+grants direct dashboard and API access; use that only behind another trusted
+access control. Generate the signing key with:
 
 ```bash
 python3 -c 'import secrets; print(secrets.token_hex(32))'

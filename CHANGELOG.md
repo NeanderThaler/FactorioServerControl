@@ -2,6 +2,25 @@
 
 All notable changes to Factorio Server Control are documented here.
 
+## 1.1.0 - 2026-08-09
+
+### Added
+
+- One-command Docker Compose deployment with persistent saves, mods, settings,
+    credentials, and bounded Factorio log history.
+- Rootless Podman support on WSL with Docker-compatible API control and native
+    Linux persistent storage.
+- Automatic recovery of occupied upload slots after container or host restarts.
+- Optional passwordless FUI mode when the administrator password is explicitly
+    empty.
+
+### Changed
+
+- Container builds normalize executable line endings for Windows worktrees.
+- FUI helper scripts are isolated from Factorio-writable persistent storage.
+- Docker and Podman deployments retain logs, credentials, and saves across
+    container replacement.
+
 ## 1.0 - 2026-08-09
 
 ### Added

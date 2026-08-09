@@ -1,5 +1,6 @@
 # Secrets - never commit
 .env
+/docker/.env
 /MYDEPLOYMENT.md
 /ansible/vault.yml
 /ansible/inventory.ini

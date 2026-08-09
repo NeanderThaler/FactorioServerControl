@@ -1,0 +1,20 @@
+FROM debian:bookworm-slim
+
+ARG FACTORIO_VERSION=stable
+
+RUN apt-get update \
+    && apt-get install --yes --no-install-recommends ca-certificates curl gosu python3 xz-utils \
+    && curl --fail --location --show-error \
+       "https://factorio.com/get-download/${FACTORIO_VERSION}/headless/linux64" \
+       --output /tmp/factorio.tar.xz \
+    && tar --extract --xz --file /tmp/factorio.tar.xz --directory /opt \
+    && rm /tmp/factorio.tar.xz \
+    && useradd --system --uid 1000 --home-dir /data --shell /usr/sbin/nologin factorio \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY docker/factorio-entrypoint.sh /usr/local/bin/factorio-entrypoint
+RUN sed -i 's/\r$//' /usr/local/bin/factorio-entrypoint \
+    && chmod 0755 /usr/local/bin/factorio-entrypoint
+
+VOLUME ["/data"]
+ENTRYPOINT ["/usr/local/bin/factorio-entrypoint"]

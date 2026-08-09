@@ -73,14 +73,15 @@
       ansible.builtin.assert:
         that:
           - vault_fui_admin_password is defined
-          - vault_fui_admin_password | length >= 12
+          - (vault_fui_admin_password | length == 0) or (vault_fui_admin_password | length >= 12)
           - vault_fui_admin_password != 'change-me'
           - vault_fui_secret_key is defined
           - vault_fui_secret_key | length >= 32
           - vault_fui_secret_key != 'change-me'
         fail_msg: >-
-          vault.yml needs a real vault_fui_admin_password (12+ characters) and
-          a vault_fui_secret_key (32+ characters) before running this play.
+          vault.yml needs vault_fui_admin_password to be empty (authentication
+          disabled) or 12+ characters, plus a vault_fui_secret_key of 32+
+          characters, before running this play.
 
     # Without credentials factorio refuses to register and the server is simply
     # absent from the in-game browser, with no obvious error.

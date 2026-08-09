@@ -201,11 +201,13 @@
         <button class="tab" data-tab="newserver">New Server</button>
       </div>
     </nav>
+    {% if logout_url %}
     <section class="side-section">
       <form class="logout" method="post" action="{{ logout_url }}">
         <button type="submit">Sign out</button>
       </form>
     </section>
+    {% endif %}
   </div>
 </aside>
 

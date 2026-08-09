@@ -1,0 +1,97 @@
+name: factorio-server-control
+
+x-factorio: &factorio
+  image: factorio-server-control-factorio
+  platform: linux/amd64
+  build:
+    context: ..
+    dockerfile: docker/Dockerfile.factorio
+    args:
+      FACTORIO_VERSION: ${FACTORIO_VERSION:-stable}
+  volumes:
+    - ${DATA_DIR:-./data}:/data
+  stop_grace_period: 2m
+
+services:
+  factorio-default:
+    <<: *factorio
+    container_name: fsc-factorio-default
+    environment:
+      INSTANCE_ID: default
+      SERVER_NAME: ${FACTORIO_SERVER_NAME:-Docker Factorio Server}
+      SERVER_DESCRIPTION: ${FACTORIO_SERVER_DESCRIPTION:-Managed by Factorio Server Control}
+      SERVER_PORT: 34197
+      MAX_PLAYERS: ${FACTORIO_MAX_PLAYERS:-10}
+      SERVER_PUBLIC: ${FACTORIO_SERVER_PUBLIC:-false}
+      FACTORIO_USERNAME: ${FACTORIO_USERNAME:-}
+      FACTORIO_TOKEN: ${FACTORIO_TOKEN:-}
+      GAME_PASSWORD: ${FACTORIO_GAME_PASSWORD:-}
+    ports:
+      - "${FACTORIO_PORT:-34197}:34197/udp"
+    restart: unless-stopped
+
+  factorio-upload1:
+    <<: *factorio
+    container_name: fsc-factorio-upload1
+    environment:
+      INSTANCE_ID: upload1
+      SERVER_NAME: Upload Slot 1
+      SERVER_DESCRIPTION: FUI uploaded Factorio server
+      SERVER_PORT: 34198
+      UPLOAD_SLOT: "true"
+      MAX_PLAYERS: ${FACTORIO_MAX_PLAYERS:-10}
+      SERVER_PUBLIC: ${FACTORIO_SERVER_PUBLIC:-false}
+      FACTORIO_USERNAME: ${FACTORIO_USERNAME:-}
+      FACTORIO_TOKEN: ${FACTORIO_TOKEN:-}
+      GAME_PASSWORD: ${FACTORIO_GAME_PASSWORD:-}
+    ports:
+      - "${FACTORIO_UPLOAD1_PORT:-34198}:34198/udp"
+    restart: "no"
+
+  factorio-upload2:
+    <<: *factorio
+    container_name: fsc-factorio-upload2
+    environment:
+      INSTANCE_ID: upload2
+      SERVER_NAME: Upload Slot 2
+      SERVER_DESCRIPTION: FUI uploaded Factorio server
+      SERVER_PORT: 34199
+      UPLOAD_SLOT: "true"
+      MAX_PLAYERS: ${FACTORIO_MAX_PLAYERS:-10}
+      SERVER_PUBLIC: ${FACTORIO_SERVER_PUBLIC:-false}
+      FACTORIO_USERNAME: ${FACTORIO_USERNAME:-}
+      FACTORIO_TOKEN: ${FACTORIO_TOKEN:-}
+      GAME_PASSWORD: ${FACTORIO_GAME_PASSWORD:-}
+    ports:
+      - "${FACTORIO_UPLOAD2_PORT:-34199}:34199/udp"
+    restart: "no"
+
+  fui:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.fui
+    container_name: fsc-fui
+    environment:
+      FUI_ROOT_PATH: /fui
+      FUI_PASSWORD: ${FUI_PASSWORD-__FSC_GENERATE_PASSWORD__}
+      FUI_SECRET_KEY: ${FUI_SECRET_KEY:-}
+      FACTORIO_USERNAME: ${FACTORIO_USERNAME:-}
+      FACTORIO_TOKEN: ${FACTORIO_TOKEN:-}
+      DOCKER_CONTAINER_PREFIX: fsc-factorio-
+      FUI_DEFAULT_PORT: ${FACTORIO_PORT:-34197}
+      FUI_UPLOAD1_PORT: ${FACTORIO_UPLOAD1_PORT:-34198}
+      FUI_UPLOAD2_PORT: ${FACTORIO_UPLOAD2_PORT:-34199}
+      FUI_COMMAND_TIMEOUT: 150
+    volumes:
+      - ${DATA_DIR:-./data}:/data
+      - ${CONTAINER_SOCKET:-/var/run/docker.sock}:/var/run/docker.sock
+    restart: unless-stopped
+
+  nginx:
+    image: docker.io/library/nginx:1.27-alpine
+    container_name: fsc-nginx
+    ports:
+      - "${FSC_HTTP_PORT:-8080}:80"
+    volumes:
+      - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro
+    restart: unless-stopped

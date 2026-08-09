@@ -50,8 +50,9 @@ FUI_SECRET_KEY="$(python3 -c 'import secrets; print(secrets.token_hex(32))')" \
   .venv/bin/uvicorn app.main:app --reload
 ```
 
-`FUI_PASSWORD` must be at least 12 characters and `FUI_SECRET_KEY` at least 32
-characters. Service controls fail off-host unless matching
+`FUI_PASSWORD` must be empty or at least 12 characters. An empty value disables
+authentication, so the dashboard and API open directly without a session.
+`FUI_SECRET_KEY` must be at least 32 characters. Service controls fail off-host unless matching
 `factorio@<id>.service` units exist locally.
 
 ## Tests And Checks
@@ -110,7 +111,7 @@ names and filesystem paths out of browser-controlled input.
 
 | Endpoint | Method | Purpose |
 | --- | --- | --- |
-| `/fui/login` | GET, POST | Sign in |
+| `/fui/login` | GET, POST | Sign in; redirects when authentication is disabled |
 | `/fui/logout` | POST | Clear session |
 | `/fui/` | GET | Dashboard |
 | `/fui/api/servers` | GET | Instance summaries |
