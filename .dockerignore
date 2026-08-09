@@ -1,0 +1,13 @@
+# Docker builds need only the container definitions and FUI package. Keep local
+# vaults, inventories, saves, scenarios, keys, Git history, and deployment notes
+# out of the build context entirely.
+**
+!docker/
+!docker/**
+!fui/
+!fui/app/
+!fui/app/**
+!fui/requirements.txt
+
+docker/data/**
+docker/.env

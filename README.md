@@ -56,6 +56,7 @@ Git. Tracked example files document the required structure.
 
 ```text
 ansible/       Provisioning, roles, templates, and example configuration
+docker/        One-command Docker Compose deployment and persistent data
 docs/          Installation, operations, and development guides
 fui/           FastAPI web console and tests
 githooks/      Repository safety hooks
@@ -66,6 +67,7 @@ scenarios/     Local scenario staging area; only its README is tracked
 ## Documentation
 
 - [Installation](docs/INSTALL.md): prerequisites, SSH, and vault setup.
+- [Docker](DOCKER.md): one-command container deployment and persistent data.
 - [Operations](docs/OPERATIONS.md): instances, deployment, verification,
   backups, and upgrades.
 - [Development](docs/DEVELOPMENT.md): local setup, tests, architecture, API,

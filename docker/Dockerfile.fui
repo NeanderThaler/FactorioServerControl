@@ -1,0 +1,29 @@
+FROM python:3.12-slim-bookworm
+
+RUN apt-get update \
+    && apt-get install --yes --no-install-recommends docker.io \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /opt/fui
+COPY fui/requirements.txt ./requirements.txt
+RUN pip install --no-cache-dir --requirement requirements.txt
+
+COPY fui/app ./app
+COPY docker/docker-adapter.py /usr/local/bin/docker-adapter
+COPY docker/fui-entrypoint.py /usr/local/bin/fui-entrypoint
+RUN chmod 0755 /usr/local/bin/docker-adapter /usr/local/bin/fui-entrypoint \
+    && ln -s docker-adapter /usr/local/bin/systemctl \
+    && ln -s docker-adapter /usr/local/bin/journalctl \
+    && ln -s docker-adapter /usr/local/bin/sudo
+
+ENV PYTHONPATH=/opt/fui \
+    FUI_SYSTEMCTL_PATH=/usr/local/bin/systemctl \
+    FUI_JOURNALCTL_PATH=/usr/local/bin/journalctl \
+    FUI_SUDO_PATH=/usr/local/bin/sudo \
+    FUI_INSTANCES_FILE=/data/fui/instances.json \
+    FUI_COMMAND_TIMEOUT=150 \
+    FUI_RESET_TIMEOUT=180 \
+    FUI_MOD_SYNC_TIMEOUT=900
+
+VOLUME ["/data"]
+ENTRYPOINT ["/usr/local/bin/fui-entrypoint"]

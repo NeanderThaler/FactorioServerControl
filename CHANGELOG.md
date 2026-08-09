@@ -20,6 +20,8 @@ All notable changes to Factorio Server Control are documented here.
 - Factorio Server Control SVG and PNG application icons.
 - Upload progress with separate transfer and server-processing states.
 - Secure deletion of uploaded servers to return their slots to the available pool.
+- One-command Docker Compose deployment with persistent saves, mods, settings,
+  credentials, and bounded Factorio log history.
 
 ### Changed
 
