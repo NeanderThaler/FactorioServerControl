@@ -11,7 +11,8 @@ RUN pip install --no-cache-dir --requirement requirements.txt
 COPY fui/app ./app
 COPY docker/docker-adapter.py /usr/local/bin/docker-adapter
 COPY docker/fui-entrypoint.py /usr/local/bin/fui-entrypoint
-RUN chmod 0755 /usr/local/bin/docker-adapter /usr/local/bin/fui-entrypoint \
+RUN sed -i 's/\r$//' /usr/local/bin/docker-adapter /usr/local/bin/fui-entrypoint \
+    && chmod 0755 /usr/local/bin/docker-adapter /usr/local/bin/fui-entrypoint \
     && ln -s docker-adapter /usr/local/bin/systemctl \
     && ln -s docker-adapter /usr/local/bin/journalctl \
     && ln -s docker-adapter /usr/local/bin/sudo

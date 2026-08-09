@@ -13,7 +13,8 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/*
 
 COPY docker/factorio-entrypoint.sh /usr/local/bin/factorio-entrypoint
-RUN chmod 0755 /usr/local/bin/factorio-entrypoint
+RUN sed -i 's/\r$//' /usr/local/bin/factorio-entrypoint \
+    && chmod 0755 /usr/local/bin/factorio-entrypoint
 
 VOLUME ["/data"]
 ENTRYPOINT ["/usr/local/bin/factorio-entrypoint"]

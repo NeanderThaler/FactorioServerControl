@@ -4,14 +4,18 @@ umask 077
 
 instance_id="${INSTANCE_ID:?INSTANCE_ID is required}"
 port="${SERVER_PORT:?SERVER_PORT is required}"
-root="/data/instances/$instance_id"
+instances_root="/data/instances"
+root="$instances_root/$instance_id"
 state="$root/state"
 config="$root/config"
-runtime="/run/factorio/$instance_id"
+runtime_root="/run/factorio"
+runtime="$runtime_root/$instance_id"
 saves="$state/saves"
 mods="$state/mods"
 
 mkdir -p "$saves" "$mods" "$state/script-output" "$config" "$runtime"
+chmod 0711 "$instances_root"
+chmod 0711 "$runtime_root"
 
 # Preserve prior runs before Factorio rotates factorio-current.log. Keep the
 # history bounded so player/event reconstruction survives container replacement

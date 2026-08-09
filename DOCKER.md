@@ -10,7 +10,8 @@ It starts:
 - An nginx reverse proxy.
 
 All mutable configuration, saves, mods, generated credentials, and logs survive
-container replacement under `docker/data/`.
+container replacement. They use `docker/data/` by default or the configured
+`DATA_DIR`.
 
 ## Requirements
 
@@ -38,6 +39,24 @@ docker compose -f docker/compose.yml exec fui \
 The default server is created automatically. Upload slots remain stopped until
 a save is uploaded through **New Server**.
 
+### Podman on WSL
+
+Podman 5 with `podman-compose` can run the same stack through its
+Docker-compatible rootless API. In WSL, enable the user socket and start from
+the repository root:
+
+```bash
+systemctl --user enable --now podman.socket
+CONTAINER_SOCKET=/run/user/$(id -u)/podman/podman.sock \
+  DATA_DIR="$HOME/factorio-server-control-data" \
+  podman-compose -f docker/compose.yml up --build -d
+```
+
+The FUI still sees the API at `/var/run/docker.sock` inside its container; only
+the host-side socket path changes. Keep `DATA_DIR` on WSL's native Linux
+filesystem rather than under `/mnt/c`; Factorio requires filesystem operations
+that Windows-backed WSL mounts do not provide.
+
 ## Configuration
 
 Defaults work without configuration. To override them, copy
@@ -55,6 +74,8 @@ Important values include:
 | Variable | Default | Purpose |
 | --- | --- | --- |
 | `FSC_HTTP_PORT` | `8080` | Web console host port |
+| `CONTAINER_SOCKET` | `/var/run/docker.sock` | Docker-compatible host API socket |
+| `DATA_DIR` | `./data` | Persistent saves, mods, settings, credentials, and logs |
 | `FACTORIO_PORT` | `34197` | Default server UDP host port |
 | `FACTORIO_UPLOAD1_PORT` | `34198` | Upload slot 1 UDP host port |
 | `FACTORIO_UPLOAD2_PORT` | `34199` | Upload slot 2 UDP host port |
@@ -73,13 +94,13 @@ docker compose --env-file docker/.env -f docker/compose.yml up --build -d --forc
 ```
 
 Existing generated server settings are intentionally retained. To change an
-existing server's listing credentials, update its
-`docker/data/instances/<id>/config/server-settings.json` or recreate that
+existing server's listing credentials, update
+`<DATA_DIR>/instances/<id>/config/server-settings.json` or recreate that
 instance directory after backing up its saves.
 
 ## Persistent Data
 
-The bind-mounted `docker/data/` directory has this layout:
+The bind-mounted data directory has this layout:
 
 ```text
 docker/data/
@@ -111,6 +132,15 @@ cp -a docker/data docker/data.backup
 ```
 
 Start it again with the same one-command invocation.
+
+Rootless Podman data contains subordinate-UID-owned files. Back it up from WSL
+through Podman's user namespace:
+
+```bash
+podman-compose -f docker/compose.yml down
+podman unshare cp -a "$HOME/factorio-server-control-data" \
+  "$HOME/factorio-server-control-data.backup"
+```
 
 ## Operations
 
