@@ -136,6 +136,10 @@
   .field textarea { min-height: 5rem; resize: vertical; font: inherit; }
   .field input:focus, .field textarea:focus { outline: 2px solid var(--orange); outline-offset: 1px; }
   .upload-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
+  .upload-progress { margin-top: 1rem; }
+  .upload-progress progress { display: block; width: 100%; height: 0.8rem; margin-top: 0.4rem;
+    border: 0; border-radius: 2px; accent-color: var(--orange); }
+  .upload-progress span { color: #c1c1c1; font-size: 0.82rem; }
   .hint { margin: 0.9rem 0 0; color: #aaa; font-size: 0.8rem; }
   .muted { color: #aaa; }
   [hidden] { display: none !important; }
@@ -347,6 +351,10 @@
         <div class="actions" style="margin-top: 1rem">
           <button class="start" id="upload-submit" type="submit">Create and start</button>
         </div>
+        <div class="upload-progress" id="upload-progress" role="status" aria-live="polite" hidden>
+          <span id="upload-progress-label">Preparing upload…</span>
+          <progress id="upload-progress-bar" max="100" value="0"></progress>
+        </div>
         <p class="error" id="upload-error"></p>
         <pre id="upload-result" hidden></pre>
       </form>
@@ -403,6 +411,33 @@
         }
         return body;
       });
+    });
+  }
+
+  function uploadRequest(path, formData, onProgress) {
+    return new Promise(function (resolve, reject) {
+      var xhr = new XMLHttpRequest();
+      xhr.open("POST", path);
+      xhr.setRequestHeader("X-Requested-With", "fui");
+      xhr.upload.addEventListener("progress", function (event) {
+        if (event.lengthComputable) { onProgress(event.loaded, event.total); }
+      });
+      xhr.upload.addEventListener("load", function () { onProgress(1, 1); });
+      xhr.addEventListener("load", function () {
+        var body = {};
+        try { body = JSON.parse(xhr.responseText || "{}"); } catch (error) { body = {}; }
+        if (xhr.status === 401) {
+          window.location.assign("login");
+          reject(new Error("Session expired"));
+        } else if (xhr.status < 200 || xhr.status >= 300) {
+          reject(new Error(body.detail || xhr.status + " " + xhr.statusText));
+        } else {
+          resolve(body);
+        }
+      });
+      xhr.addEventListener("error", function () { reject(new Error("Upload connection failed")); });
+      xhr.addEventListener("abort", function () { reject(new Error("Upload was cancelled")); });
+      xhr.send(formData);
     });
   }
 
@@ -731,10 +766,26 @@
     formData.append("description", document.getElementById("upload-description").value);
     formData.append("public", document.getElementById("upload-public").checked ? "true" : "false");
     formData.append("save", document.getElementById("upload-save").files[0]);
+    var progress = document.getElementById("upload-progress");
+    var progressBar = document.getElementById("upload-progress-bar");
+    var progressLabel = document.getElementById("upload-progress-label");
     uploadSubmit.disabled = true;
+    uploadSubmit.textContent = "Creating…";
+    progress.hidden = false;
+    progressBar.value = 0;
+    progressLabel.textContent = "Uploading save… 0%";
     document.getElementById("upload-error").textContent = "";
     document.getElementById("upload-result").hidden = true;
-    request("api/upload-slots/" + encodeURIComponent(slot), { method: "POST", body: formData })
+    uploadRequest("api/upload-slots/" + encodeURIComponent(slot), formData, function (loaded, total) {
+      if (loaded === total) {
+        progressBar.removeAttribute("value");
+        progressLabel.textContent = "Upload complete. Validating save, syncing mods, and starting server…";
+      } else {
+        var percent = Math.round(loaded / total * 100);
+        progressBar.value = percent;
+        progressLabel.textContent = "Uploading save… " + percent + "%";
+      }
+    })
       .then(function (body) {
         var result = document.getElementById("upload-result");
         result.textContent = body.server.name + " started on UDP " + body.server.port +
@@ -748,6 +799,9 @@
         document.getElementById("upload-error").textContent = error.message;
       })
       .then(function () {
+        progress.hidden = true;
+        progressBar.value = 0;
+        uploadSubmit.textContent = "Create and start";
         uploadSubmit.disabled = !document.getElementById("upload-slot").value;
       });
   });

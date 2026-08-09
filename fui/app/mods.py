@@ -195,20 +195,12 @@ def _stage_release(
     return filename
 
 
-def _desired_mod_list(required: list[SaveMod], mods_dir: Path) -> dict[str, object]:
+def _desired_mod_list(required: list[SaveMod], _mods_dir: Path) -> dict[str, object]:
     enabled = {mod.name for mod in required}
-    builtins = {"base": True}
-    try:
-        current = json.loads((mods_dir / "mod-list.json").read_text(encoding="utf-8"))
-        for entry in current.get("mods", []):
-            name = entry.get("name")
-            if name in _BUILTIN_MODS:
-                builtins[name] = bool(entry.get("enabled"))
-    except (OSError, ValueError, AttributeError):
-        pass
-    builtins["base"] = True
-    for name in enabled & _BUILTIN_MODS:
-        builtins[name] = True
+    builtins = {
+        name: name == "base" or name in enabled
+        for name in _BUILTIN_MODS
+    }
 
     entries = [
         {"name": name, "enabled": is_enabled}

@@ -59,16 +59,17 @@ class SaveModParserTests(TestCase):
                 ],
             )
 
-    def test_mod_list_preserves_builtin_flags_and_enables_base(self) -> None:
+    def test_mod_list_disables_dlc_mods_not_required_by_save(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             mods_dir = Path(temp)
             (mods_dir / "mod-list.json").write_text(
                 '{"mods":[{"name":"base","enabled":false},'
-                '{"name":"space-age","enabled":false}]}',
+                '{"name":"quality","enabled":true},'
+                '{"name":"space-age","enabled":true}]}',
                 encoding="utf-8",
             )
             result = _desired_mod_list(
-                [SaveMod("Krastorio2", ModVersion(1, 3, 25))], mods_dir
+                [SaveMod("nullius", ModVersion(1, 9, 6))], mods_dir
             )
 
         self.assertEqual(
@@ -76,8 +77,10 @@ class SaveModParserTests(TestCase):
             {
                 "mods": [
                     {"name": "base", "enabled": True},
+                    {"name": "elevated-rails", "enabled": False},
+                    {"name": "quality", "enabled": False},
                     {"name": "space-age", "enabled": False},
-                    {"name": "Krastorio2", "enabled": True},
+                    {"name": "nullius", "enabled": True},
                 ]
             },
         )

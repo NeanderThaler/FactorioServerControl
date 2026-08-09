@@ -18,8 +18,10 @@ All notable changes to Factorio Server Control are documented here.
 - Local-only vault, custom-instance, key, save, scenario, and deployment files.
 - Installation, operations, development, scenario, license, and attribution docs.
 - Factorio Server Control SVG and PNG application icons.
+- Upload progress with separate transfer and server-processing states.
 
 ### Changed
 
 - Rebranded the project and web console as Factorio Server Control.
 - Split reusable settings, custom instances, and generated upload slots.
+- Save mod synchronization now disables built-in DLC mods absent from the save.
