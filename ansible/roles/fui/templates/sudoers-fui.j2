@@ -8,4 +8,7 @@
 {% if instance.mod_sync_enabled | default(true) %}
 {{ fui_user }} ALL=(root) NOPASSWD: {{ instance.config_dir }}/factorio-sync-mods.sh ""
 {% endif %}
+{% if instance.upload_slot | default(false) %}
+{{ fui_user }} ALL=(root) NOPASSWD: {{ instance.config_dir }}/factorio-delete-upload.sh ""
+{% endif %}
 {% endfor %}

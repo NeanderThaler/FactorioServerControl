@@ -1,0 +1,10 @@
+#!/bin/sh
+# Managed by Ansible - local edits will be overwritten.
+set -eu
+
+{{ fui_systemctl_path }} stop factorio@{{ item.id }}.service
+
+find {{ (item.state_dir ~ '/saves') | quote }} -maxdepth 1 -type f \
+    \( -name '*.zip' -o -name '.*.tmp' \) -delete
+find {{ (item.state_dir ~ '/mods') | quote }} -maxdepth 1 -type f \
+    \( -name '*.zip' -o -name mod-list.json \) -delete

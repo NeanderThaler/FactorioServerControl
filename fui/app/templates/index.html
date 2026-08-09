@@ -51,8 +51,10 @@
   .server-trigger-name { display: block; overflow: hidden; font-weight: 700; text-overflow: ellipsis; white-space: nowrap; }
   .server-trigger-meta { display: block; color: #aaa; font-size: 0.75rem; font-weight: 400; }
   .server-chevron { color: var(--gray-light); }
-  .server-menu { margin-top: 0.35rem; padding: 0.25rem; border: 1px solid #171717; border-radius: 2px;
-                 background: #202020; box-shadow: 0 12px 22px rgba(0, 0, 0, 0.42); }
+  .server-menu { position: absolute; z-index: 30; top: calc(100% + 0.35rem); left: 0; right: 0;
+                 max-height: min(28rem, 70vh); overflow-y: auto; padding: 0.25rem;
+                 border: 1px solid #171717; border-radius: 2px; background: #202020;
+                 box-shadow: 0 12px 22px rgba(0, 0, 0, 0.42); }
   .server-option { display: block; width: 100%; padding: 0.65rem 0.7rem; border: 1px solid transparent;
                    border-radius: 1px; background: var(--gray-medium); color: var(--white); text-align: left; }
   .server-option + .server-option { margin-top: 0.25rem; }
@@ -238,6 +240,7 @@
       <button data-action="restart">Restart</button>
       <button id="refresh">Refresh</button>
       <button class="danger" id="reset">Reset map</button>
+      <button class="danger" id="delete-upload" hidden>Delete server</button>
     </div>
     <p class="hint" id="reset-hint">Reset archives the current save on the server and boots the scenario from scratch.</p>
     <p class="error" id="error"></p>
@@ -370,7 +373,8 @@
 
   var buttons = Array.prototype.slice.call(document.querySelectorAll("button[data-action]"));
   var resetButton = document.getElementById("reset");
-  var busyButtons = buttons.concat([resetButton]);
+  var deleteUploadButton = document.getElementById("delete-upload");
+  var busyButtons = buttons.concat([resetButton, deleteUploadButton]);
   var errorBox = document.getElementById("error");
   var syncModsButton = document.getElementById("syncmods");
   var serverTrigger = document.getElementById("server-trigger");
@@ -655,6 +659,7 @@
     var selected = serverCatalog.find(function (server) { return server.id === currentServer; });
     syncModsButton.disabled = !selected || !selected.mod_sync_enabled;
     resetButton.hidden = !selected || !selected.reset_enabled;
+    deleteUploadButton.hidden = !selected || !selected.upload_slot;
     document.getElementById("reset-hint").hidden = resetButton.hidden;
     if (selected) { renderServerSummary(selected); }
     renderServerMenu();
@@ -727,6 +732,18 @@
         return new Promise(function (resolve) { window.setTimeout(resolve, 1200); });
       })
       .then(refreshLogs)
+      .catch(function (error) { showError(error.message); })
+      .then(function () { setBusy(false); });
+  });
+
+  deleteUploadButton.addEventListener("click", function () {
+    var selected = serverCatalog.find(function (server) { return server.id === currentServer; });
+    if (!selected) { return; }
+    if (window.prompt("Delete " + selected.name + " and free this upload slot?\n\nType DELETE to confirm.") !== "DELETE") { return; }
+    setBusy(true);
+    showError("");
+    request("api/upload-slots/" + encodeURIComponent(selected.id), { method: "DELETE" })
+      .then(function () { return Promise.all([loadServers(), loadUploadSlots()]); })
       .catch(function (error) { showError(error.message); })
       .then(function () { setBusy(false); });
   });

@@ -26,7 +26,7 @@ from .config import get_settings
 from .logs import read_clean_logs
 from .mods import ModSyncError, read_mod_inventory, run_privileged_sync
 from .players import read_players
-from .systemd import ServiceError, control, read_logs, read_status, reset_map
+from .systemd import ServiceError, control, delete_upload, read_logs, read_status, reset_map
 from .uploads import (
     SaveUploadError,
     install_save,
@@ -216,6 +216,7 @@ def api_servers() -> dict[str, Any]:
                 "id": instance.id,
                 "name": _instance_display_name(instance),
                 "service": instance.service_name,
+                "upload_slot": instance.upload_slot,
                 "mod_sync_enabled": instance.mod_sync_enabled,
                 "reset_enabled": instance.reset_enabled,
                 "status": server_status,
@@ -302,6 +303,31 @@ def api_upload_save(
         },
         "mods": sync_result.get("mods", []),
     }
+
+
+@app.delete(
+    "/api/upload-slots/{instance_id}",
+    dependencies=[Depends(require_session), Depends(require_ajax_header)],
+)
+def api_delete_upload(instance_id: str) -> dict[str, str]:
+    instance, _ = _instance_settings(instance_id)
+    if not instance.upload_slot:
+        raise HTTPException(status.HTTP_409_CONFLICT, "Instance is not an upload slot")
+
+    with upload_lock:
+        if not _slot_in_use(instance):
+            raise HTTPException(status.HTTP_409_CONFLICT, "Upload slot is already empty")
+        delete_script = str(
+            Path(instance.mod_sync_script_path).with_name("factorio-delete-upload.sh")
+        )
+        try:
+            delete_upload(delete_script, settings.sudo_path, settings.reset_timeout)
+        except ServiceError as exc:
+            logger.warning("Upload slot deletion for %s failed: %s", instance_id, exc)
+            raise HTTPException(status.HTTP_409_CONFLICT, str(exc)) from exc
+
+    logger.warning("Uploaded server %s deleted", instance_id)
+    return {"id": instance.id, "status": "available"}
 
 
 @app.get("/api/servers/{instance_id}/status", dependencies=[Depends(require_session)])

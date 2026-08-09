@@ -147,6 +147,19 @@
     label: "{{ item.id }}"
   when: not (item.mod_sync_enabled | default(true) | bool)
 
+- name: Install upload slot deletion helpers
+  ansible.builtin.template:
+    src: factorio-delete-upload.sh.j2
+    dest: "{{ item.config_dir }}/factorio-delete-upload.sh"
+    owner: root
+    group: root
+    mode: "0700"
+    validate: sh -n %s
+  loop: "{{ fui_instances }}"
+  loop_control:
+    label: "{{ item.id }}"
+  when: item.upload_slot | default(false) | bool
+
 - name: Install the environment file
   ansible.builtin.template:
     src: fui.env.j2

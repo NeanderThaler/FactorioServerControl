@@ -231,3 +231,13 @@ def reset_map(settings: Settings) -> None:
     )
     if proc.returncode != 0:
         raise ServiceError(proc.stderr.strip() or "map reset failed")
+
+
+def delete_upload(script_path: str, sudo_path: str, timeout: int) -> None:
+    """Stop and clear an upload slot through its fixed root-owned helper."""
+    proc = _run(
+        [sudo_path, "--non-interactive", script_path],
+        timeout,
+    )
+    if proc.returncode != 0:
+        raise ServiceError(proc.stderr.strip() or "upload slot deletion failed")

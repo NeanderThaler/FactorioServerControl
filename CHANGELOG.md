@@ -19,6 +19,7 @@ All notable changes to Factorio Server Control are documented here.
 - Installation, operations, development, scenario, license, and attribution docs.
 - Factorio Server Control SVG and PNG application icons.
 - Upload progress with separate transfer and server-processing states.
+- Secure deletion of uploaded servers to return their slots to the available pool.
 
 ### Changed
 
