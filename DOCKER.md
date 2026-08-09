@@ -172,6 +172,22 @@ git pull
 docker compose -f docker/compose.yml up --build -d
 ```
 
+With Podman Compose, rebuild and explicitly recreate the stack so existing
+containers cannot remain attached to the previous image:
+
+```bash
+git pull
+CONTAINER_SOCKET=/run/user/$(id -u)/podman/podman.sock \
+  DATA_DIR="$HOME/factorio-server-control-data" \
+  podman-compose -f docker/compose.yml build
+CONTAINER_SOCKET=/run/user/$(id -u)/podman/podman.sock \
+  DATA_DIR="$HOME/factorio-server-control-data" \
+  podman-compose -f docker/compose.yml down
+CONTAINER_SOCKET=/run/user/$(id -u)/podman/podman.sock \
+  DATA_DIR="$HOME/factorio-server-control-data" \
+  podman-compose -f docker/compose.yml up -d
+```
+
 Add `--env-file docker/.env` when using the optional environment file.
 
 The FUI controls the Factorio containers by translating its fixed
