@@ -7,7 +7,6 @@ factorio_version: stable
 factorio_user: factorio
 factorio_group: factorio
 factorio_install_dir: /opt/factorio
-factorio_user_home: /srv/factorio
 factorio_instances_base_dir: /srv/factorio/instances
 factorio_scenario_src: "{{ playbook_dir }}/../scenarios"
 factorio_mods_src: "{{ playbook_dir }}/../mods"

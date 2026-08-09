@@ -8,7 +8,6 @@
   ansible.builtin.user:
     name: "{{ factorio_user }}"
     group: "{{ factorio_group }}"
-    home: "{{ factorio_user_home }}"
     shell: /usr/sbin/nologin
     system: true
     create_home: false
