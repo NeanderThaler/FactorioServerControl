@@ -39,6 +39,14 @@ docker compose -f docker/compose.yml exec fui \
 The default server is created automatically. Upload slots remain stopped until
 a save is uploaded through **New Server**.
 
+To disable FUI password authentication, explicitly set `FUI_PASSWORD=` in
+`docker/.env`. The dashboard and API then open directly without a login or
+session cookie. Omitting the variable keeps the secure default: a password is
+generated and persisted on first start. The selected mode is persistent. To
+re-enable authentication after disabling it, set a new password of at least 12
+characters, or remove `<DATA_DIR>/fui/admin-password` while the stack is stopped
+and omit `FUI_PASSWORD` on the next start.
+
 ### Podman on WSL
 
 Podman 5 with `podman-compose` can run the same stack through its
@@ -83,7 +91,7 @@ Important values include:
 | `FACTORIO_SERVER_PUBLIC` | `false` | List servers publicly |
 | `FACTORIO_USERNAME` | empty | factorio.com username |
 | `FACTORIO_TOKEN` | empty | factorio.com service token |
-| `FUI_PASSWORD` | generated | Web console password |
+| `FUI_PASSWORD` | generated | Web console password; empty disables authentication |
 | `FUI_SECRET_KEY` | generated | Session-signing key |
 
 Public listing and automatic mod downloads require `FACTORIO_USERNAME` and
@@ -186,6 +194,11 @@ separation is the priority.
 
 Keep `docker/.env` and `docker/data/` private. They contain credentials, session
 secrets, saves, and downloaded mods and are excluded from Git.
+
+An empty `FUI_PASSWORD` removes the application's login boundary entirely.
+Use it only when an upstream identity-aware proxy or an equally trusted network
+control prevents unauthorized access to nginx and the Docker-compatible API
+operations exposed through FUI.
 
 ## Troubleshooting
 

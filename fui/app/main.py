@@ -1,8 +1,8 @@
 """FUI - a small web console for the Factorio headless server.
 
 Authentication is handled by this app: a single password, no username. A
-successful login sets a signed, expiring cookie. The app only ever listens on
-127.0.0.1 and is reached through nginx.
+successful login sets a signed, expiring cookie. An explicitly empty password
+disables authentication. The app is reached through nginx.
 """
 
 from __future__ import annotations
@@ -21,7 +21,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
 from . import __version__
-from .auth import LoginThrottle, issue_token, verify_password, verify_token
+from .auth import LoginThrottle, is_authenticated, issue_token, verify_password
 from .config import get_settings
 from .logs import read_clean_logs
 from .mods import ModSyncError, read_mod_inventory, run_privileged_sync
@@ -73,7 +73,11 @@ def _client_key(request: Request) -> str:
 
 
 def _authenticated(request: Request) -> bool:
-    return verify_token(settings.secret_key, request.cookies.get(settings.cookie_name))
+    return is_authenticated(
+        settings.password,
+        settings.secret_key,
+        request.cookies.get(settings.cookie_name),
+    )
 
 
 def _instance_settings(instance_id: str):
@@ -189,7 +193,10 @@ def dashboard(request: Request) -> Response:
     return templates.TemplateResponse(
         request,
         "index.html",
-        {"logout_url": _url("/logout"), "version": __version__},
+        {
+            "logout_url": _url("/logout") if settings.password else None,
+            "version": __version__,
+        },
     )
 
 

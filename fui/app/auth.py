@@ -50,6 +50,10 @@ def verify_password(expected: str, provided: str) -> bool:
     return hmac.compare_digest(expected.encode(), provided.encode())
 
 
+def is_authenticated(password: str, secret: str, token: str | None) -> bool:
+    return password == "" or verify_token(secret, token)
+
+
 @dataclass
 class _Attempts:
     failures: int = 0

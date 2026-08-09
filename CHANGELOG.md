@@ -22,6 +22,8 @@ All notable changes to Factorio Server Control are documented here.
 - Secure deletion of uploaded servers to return their slots to the available pool.
 - One-command Docker Compose deployment with persistent saves, mods, settings,
   credentials, and bounded Factorio log history.
+- Optional passwordless FUI mode when the administrator password is explicitly
+    empty.
 
 ### Changed
 

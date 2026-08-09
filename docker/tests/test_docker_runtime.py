@@ -129,6 +129,43 @@ class DockerAdapterTests(TestCase):
 
 
 class FuiEntrypointTests(TestCase):
+    def test_generates_password_when_environment_is_unset(self) -> None:
+        entrypoint = load_module("fui_entrypoint_generated_password", "docker/fui-entrypoint.py")
+        with tempfile.TemporaryDirectory() as temp:
+            fui = Path(temp) / "fui"
+            fui.mkdir()
+            with (
+                patch.object(entrypoint, "FUI", fui),
+                patch.dict(os.environ, {}, clear=True),
+            ):
+                password = entrypoint.persistent_value(
+                    "FUI_PASSWORD",
+                    "admin-password",
+                    lambda: "generated-password",
+                    allow_empty=True,
+                )
+
+            self.assertEqual(password, "generated-password")
+
+    def test_persists_explicit_empty_password(self) -> None:
+        entrypoint = load_module("fui_entrypoint_empty_password", "docker/fui-entrypoint.py")
+        with tempfile.TemporaryDirectory() as temp:
+            fui = Path(temp) / "fui"
+            fui.mkdir()
+            with (
+                patch.object(entrypoint, "FUI", fui),
+                patch.dict(os.environ, {"FUI_PASSWORD": ""}, clear=False),
+            ):
+                password = entrypoint.persistent_value(
+                    "FUI_PASSWORD",
+                    "admin-password",
+                    lambda: "generated-password",
+                    allow_empty=True,
+                )
+
+            self.assertEqual(password, "")
+            self.assertEqual((fui / "admin-password").read_text(encoding="utf-8"), "\n")
+
     def test_generates_registry_and_valid_shell_helpers(self) -> None:
         entrypoint = load_module("fui_entrypoint", "docker/fui-entrypoint.py")
         with tempfile.TemporaryDirectory() as temp:

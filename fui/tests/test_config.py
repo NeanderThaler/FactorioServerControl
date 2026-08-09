@@ -5,7 +5,26 @@ from pathlib import Path
 from unittest import TestCase
 from unittest.mock import patch
 
-from app.config import _load_instances
+from app.config import _load_instances, _load_password
+
+
+class PasswordConfigTests(TestCase):
+    def test_allows_empty_password_to_disable_authentication(self) -> None:
+        with patch.dict(os.environ, {"FUI_PASSWORD": ""}, clear=True):
+            self.assertEqual(_load_password(), "")
+
+    def test_rejects_unset_or_short_password(self) -> None:
+        with patch.dict(os.environ, {}, clear=True), self.assertRaises(RuntimeError):
+            _load_password()
+        with (
+            patch.dict(os.environ, {"FUI_PASSWORD": "too-short"}, clear=True),
+            self.assertRaises(RuntimeError),
+        ):
+            _load_password()
+
+    def test_accepts_password_at_minimum_length(self) -> None:
+        with patch.dict(os.environ, {"FUI_PASSWORD": "twelve-chars"}, clear=True):
+            self.assertEqual(_load_password(), "twelve-chars")
 
 
 class InstanceConfigTests(TestCase):

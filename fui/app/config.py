@@ -83,6 +83,15 @@ def _require_secret(env_var: str, min_length: int) -> str:
     return value
 
 
+def _load_password() -> str:
+    if "FUI_PASSWORD" not in os.environ:
+        raise RuntimeError("FUI_PASSWORD must be set; use an empty value to disable authentication.")
+    value = os.environ["FUI_PASSWORD"]
+    if value and len(value) < 12:
+        raise RuntimeError("FUI_PASSWORD must be empty or at least 12 characters.")
+    return value
+
+
 def _load_instances() -> tuple[ServerInstance, ...]:
     path = os.environ.get("FUI_INSTANCES_FILE")
     if path:
@@ -185,7 +194,7 @@ def get_settings() -> Settings:
         command_timeout=int(os.environ.get("FUI_COMMAND_TIMEOUT", "30")),
         reset_timeout=int(os.environ.get("FUI_RESET_TIMEOUT", "180")),
         mod_sync_timeout=int(os.environ.get("FUI_MOD_SYNC_TIMEOUT", "900")),
-        password=_require_secret("FUI_PASSWORD", 12),
+        password=_load_password(),
         secret_key=_require_secret("FUI_SECRET_KEY", 32),
         cookie_name=os.environ.get("FUI_COOKIE_NAME", "fui_session"),
         cookie_secure=os.environ.get("FUI_COOKIE_SECURE", "false").lower() == "true",

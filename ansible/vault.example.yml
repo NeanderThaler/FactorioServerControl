@@ -5,7 +5,8 @@
 #   ansible-vault edit vault.yml
 # vault.yml is local-only, ignored by Git, and blocked by the pre-commit hook.
 
-# The single password guarding /fui. There is no username.
+# The single password guarding /fui. There is no username. Set to "" only when
+# direct, unauthenticated access is intentional and protected by other controls.
 vault_fui_admin_password: "change-me"
 
 # Signs the session cookie. Generate with:

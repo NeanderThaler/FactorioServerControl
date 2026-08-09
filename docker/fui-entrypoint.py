@@ -20,12 +20,18 @@ INSTANCES = (
     ("upload2", "Upload Slot 2", "FUI_UPLOAD2_PORT", 34199, True),
 )
 SYSTEMCTL = "/usr/local/bin/systemctl"
+GENERATE_PASSWORD = "__FSC_GENERATE_PASSWORD__"
 
 
-def persistent_value(env_name: str, filename: str, factory) -> str:
-    configured = os.environ.get(env_name, "")
+def persistent_value(
+    env_name: str,
+    filename: str,
+    factory,
+    allow_empty: bool = False,
+) -> str:
+    configured = os.environ.get(env_name)
     path = FUI / filename
-    if configured:
+    if configured is not None and (configured or allow_empty):
         path.write_text(configured + "\n", encoding="utf-8")
         path.chmod(stat.S_IRUSR | stat.S_IWUSR)
         return configured
@@ -48,8 +54,15 @@ def main() -> None:
     HELPERS.chmod(stat.S_IRWXU)
     password_path = FUI / "admin-password"
     password_existed = password_path.exists()
-    password_configured = bool(os.environ.get("FUI_PASSWORD", ""))
-    password = persistent_value("FUI_PASSWORD", "admin-password", lambda: secrets.token_urlsafe(18))
+    if os.environ.get("FUI_PASSWORD") == GENERATE_PASSWORD:
+        del os.environ["FUI_PASSWORD"]
+    password_configured = "FUI_PASSWORD" in os.environ
+    password = persistent_value(
+        "FUI_PASSWORD",
+        "admin-password",
+        lambda: secrets.token_urlsafe(18),
+        allow_empty=True,
+    )
     secret = persistent_value("FUI_SECRET_KEY", "session-secret", lambda: secrets.token_hex(32))
     os.environ["FUI_PASSWORD"] = password
     os.environ["FUI_SECRET_KEY"] = secret
@@ -142,7 +155,10 @@ find {saves} -maxdepth 1 -type f -name '*.zip' -exec mv {{}} "$archive"/ \;
             )
     if not password_existed and not password_configured:
         print(f"Generated FUI password: {password}", flush=True)
-    print("FUI password is stored in /data/fui/admin-password", flush=True)
+    if password:
+        print("FUI password is stored in /data/fui/admin-password", flush=True)
+    else:
+        print("FUI password authentication is disabled", flush=True)
 
     os.execvp(
         "uvicorn",

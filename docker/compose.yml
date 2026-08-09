@@ -73,7 +73,7 @@ services:
     container_name: fsc-fui
     environment:
       FUI_ROOT_PATH: /fui
-      FUI_PASSWORD: ${FUI_PASSWORD:-}
+      FUI_PASSWORD: ${FUI_PASSWORD-__FSC_GENERATE_PASSWORD__}
       FUI_SECRET_KEY: ${FUI_SECRET_KEY:-}
       FACTORIO_USERNAME: ${FACTORIO_USERNAME:-}
       FACTORIO_TOKEN: ${FACTORIO_TOKEN:-}
