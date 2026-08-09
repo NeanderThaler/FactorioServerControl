@@ -1,0 +1,81 @@
+---
+- name: Install nginx
+  ansible.builtin.apt:
+    name:
+      - nginx
+    state: present
+
+- name: Create the web root
+  ansible.builtin.file:
+    path: "{{ nginx_web_root }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Publish an intentionally empty index page
+  ansible.builtin.copy:
+    content: ""
+    dest: "{{ nginx_web_root }}/index.html"
+    owner: root
+    group: root
+    mode: "0644"
+
+# Authentication moved into the FUI application, so the basic-auth file is no
+# longer consulted by any config and is removed rather than left lying around.
+- name: Remove the obsolete basic-auth credentials file
+  ansible.builtin.file:
+    path: "{{ nginx_htpasswd_file }}"
+    state: absent
+
+- name: Remove the distribution default site
+  ansible.builtin.file:
+    path: /etc/nginx/sites-enabled/default
+    state: absent
+  when: nginx_remove_default_site | bool
+  notify: Reload nginx
+
+- name: Install the site configuration
+  ansible.builtin.template:
+    src: site.conf.j2
+    dest: "/etc/nginx/sites-available/{{ nginx_site_name }}.conf"
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Reload nginx
+
+# Enabling the symlink is what exposes a bad config to the next reload, so the
+# whole configuration is verified here and the symlink withdrawn on failure.
+# Without the rescue, a rejected config would sit in sites-enabled and break
+# an unrelated reload later.
+- name: Enable the site
+  block:
+    - name: Link the site into sites-enabled
+      ansible.builtin.file:
+        src: "/etc/nginx/sites-available/{{ nginx_site_name }}.conf"
+        dest: "/etc/nginx/sites-enabled/{{ nginx_site_name }}.conf"
+        state: link
+      notify: Reload nginx
+
+    - name: Verify nginx still accepts the full configuration
+      ansible.builtin.command: nginx -t
+      changed_when: false
+  rescue:
+    - name: Withdraw the rejected site
+      ansible.builtin.file:
+        path: "/etc/nginx/sites-enabled/{{ nginx_site_name }}.conf"
+        state: absent
+
+    - name: Fail with the cause
+      ansible.builtin.fail:
+        msg: >-
+          nginx rejected the configuration, so {{ nginx_site_name }}.conf was
+          disabled again and the running config is untouched. A duplicate
+          "default_server" on port {{ nginx_listen_port }} is the usual cause -
+          check nginx_default_server and nginx_listen_port.
+
+- name: Enable and start nginx
+  ansible.builtin.systemd_service:
+    name: nginx
+    enabled: true
+    state: started

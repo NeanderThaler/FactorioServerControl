@@ -1,0 +1,34 @@
+#!/bin/sh
+# Managed by Ansible - local edits will be overwritten.
+{% if factorio_scenario_name | length > 0 %}
+# Boots the scenario on a cold start, then resumes the newest autosave. Without
+# this, every service restart would re-run the scenario and discard the map.
+{% endif %}
+set -eu
+
+saves="{{ factorio_state_dir }}/saves"
+
+# Factorio reads console commands from stdin and logs an error the moment it
+# sees EOF, which is exactly what systemd's default /dev/null hands it. A FIFO
+# opened read-write always has a writer, so it never reaches EOF; it also makes
+# "echo <command> > <fifo>" reach the in-game console.
+console="{{ factorio_runtime_dir }}/console.fifo"
+[ -p "$console" ] || { rm -f "$console"; mkfifo -m 0600 "$console"; }
+exec 0<>"$console"
+
+set -- \
+    --config "{{ factorio_config_dir }}/config.ini" \
+    --server-settings "{{ factorio_config_dir }}/server-settings.json" \
+    --port {{ factorio_port }}
+
+{% if factorio_scenario_name | length > 0 %}
+if find "$saves" -maxdepth 1 -name '*.zip' -print -quit | grep -q .; then
+    set -- "$@" --start-server-load-latest
+else
+    set -- "$@" --start-server-load-scenario "{{ factorio_scenario_name }}"
+fi
+{% else %}
+set -- "$@" --start-server "$saves/{{ factorio_save_name }}.zip"
+{% endif %}
+
+exec "{{ factorio_install_dir }}/bin/x64/factorio" "$@"

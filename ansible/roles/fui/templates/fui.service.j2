@@ -1,0 +1,34 @@
+# Managed by Ansible - local edits will be overwritten.
+[Unit]
+Description=FUI - Factorio web console
+After=network.target
+Wants=factorio-servers.target
+
+[Service]
+Type=simple
+User={{ fui_user }}
+Group={{ fui_group }}
+WorkingDirectory={{ fui_install_dir }}
+EnvironmentFile={{ fui_config_dir }}/fui.env
+ExecStart={{ fui_install_dir }}/.venv/bin/uvicorn app.main:app \
+    --host 127.0.0.1 \
+    --port {{ fui_port }} \
+    --proxy-headers \
+    --forwarded-allow-ips 127.0.0.1
+Restart=on-failure
+RestartSec=5
+
+# NoNewPrivileges is deliberately NOT set: it would block the setuid sudo call
+# this service relies on to control Factorio instances. ProtectSystem is "full"
+# rather than "strict" for the same reason - sudo needs a writable /run.
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=full
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictRealtime=true
+LockPersonality=true
+
+[Install]
+WantedBy=multi-user.target

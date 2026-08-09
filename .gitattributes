@@ -1,0 +1,7 @@
+# Normalise all text to LF in the working tree and in git.
+* text=auto eol=lf
+
+*.png binary
+*.jpg binary
+*.zip binary
+*.tar.xz binary

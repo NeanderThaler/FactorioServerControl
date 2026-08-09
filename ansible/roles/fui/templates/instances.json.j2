@@ -1,0 +1,18 @@
+[
+{% for instance in fui_instances %}
+{{ {
+	"id": instance.id,
+	"name": instance.name,
+	"service_name": 'factorio@' ~ instance.id ~ '.service',
+	"reset_script_path": instance.config_dir ~ '/factorio-reset.sh',
+	"mod_sync_script_path": instance.config_dir ~ '/factorio-sync-mods.sh',
+	"mod_sync_enabled": instance.mod_sync_enabled | default(true),
+	"mods_dir": instance.state_dir ~ '/mods',
+	"upload_slot": instance.upload_slot | default(false),
+	"saves_dir": instance.state_dir ~ '/saves',
+	"server_settings_path": instance.config_dir ~ '/server-settings.json',
+	"port": instance.port,
+	"reset_enabled": not (instance.upload_slot | default(false))
+} | to_nice_json }}{{ "," if not loop.last else "" }}
+{% endfor %}
+]

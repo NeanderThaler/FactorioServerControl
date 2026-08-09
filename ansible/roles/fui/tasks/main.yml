@@ -1,0 +1,184 @@
+---
+- name: Install Python runtime packages
+  ansible.builtin.apt:
+    name:
+      - python3
+      - python3-venv
+      - sudo
+    state: present
+
+- name: Create the fui group
+  ansible.builtin.group:
+    name: "{{ fui_group }}"
+    system: true
+
+# systemd-journal membership lets the console read factorio logs without sudo.
+- name: Create the fui service account
+  ansible.builtin.user:
+    name: "{{ fui_user }}"
+    group: "{{ fui_group }}"
+    groups:
+      - systemd-journal
+      - "{{ factorio_group }}"
+    append: true
+    home: "{{ fui_install_dir }}"
+    shell: /usr/sbin/nologin
+    system: true
+    create_home: false
+  notify: Restart fui
+
+- name: Grant FUI ownership of upload slot settings
+  ansible.builtin.file:
+    path: "{{ item.config_dir }}/server-settings.json"
+    state: file
+    owner: "{{ fui_user }}"
+    group: "{{ factorio_group }}"
+    mode: "0660"
+  loop: "{{ fui_instances }}"
+  loop_control:
+    label: "{{ item.id }}"
+  when:
+    - item.upload_slot | default(false) | bool
+    - not ansible_check_mode
+
+# Application code is root-owned: the service account can execute it but not
+# modify it.
+- name: Create the application directory
+  ansible.builtin.file:
+    path: "{{ fui_install_dir }}"
+    state: directory
+    owner: root
+    group: "{{ fui_group }}"
+    mode: "0750"
+
+- name: Locate the application source files
+  ansible.builtin.find:
+    paths: "{{ fui_source_dir }}/app"
+    patterns: "*.py,*.html,*.svg,*.png"
+    recurse: true
+  delegate_to: localhost
+  become: false
+  register: fui_source_files
+
+- name: Create the application package directories
+  ansible.builtin.file:
+    path: "{{ fui_install_dir }}/app/{{ item }}"
+    state: directory
+    owner: root
+    group: "{{ fui_group }}"
+    mode: "0750"
+  loop: >-
+    {{ fui_source_files.files | map(attribute='path')
+       | map('relpath', fui_source_dir ~ '/app') | map('dirname')
+       | reject('equalto', '') | unique | sort }}
+
+# Copying the directory wholesale would also ship any __pycache__ the developer
+# happened to create, which is both stale on the server and a source of churn.
+- name: Deploy the application package
+  ansible.builtin.copy:
+    src: "{{ item }}"
+    dest: "{{ fui_install_dir }}/app/{{ item | relpath(fui_source_dir ~ '/app') }}"
+    owner: root
+    group: "{{ fui_group }}"
+    mode: "0640"
+  loop: "{{ fui_source_files.files | map(attribute='path') | sort }}"
+  loop_control:
+    label: "{{ item | relpath(fui_source_dir ~ '/app') }}"
+  notify: Restart fui
+
+- name: Remove bytecode left by earlier directory-wide copies
+  ansible.builtin.file:
+    path: "{{ fui_install_dir }}/app/__pycache__"
+    state: absent
+  notify: Restart fui
+
+- name: Deploy requirements.txt
+  ansible.builtin.copy:
+    src: "{{ fui_source_dir }}/requirements.txt"
+    dest: "{{ fui_install_dir }}/requirements.txt"
+    owner: root
+    group: "{{ fui_group }}"
+    mode: "0640"
+  notify: Restart fui
+
+- name: Install Python dependencies into a virtualenv
+  ansible.builtin.pip:
+    requirements: "{{ fui_install_dir }}/requirements.txt"
+    virtualenv: "{{ fui_install_dir }}/.venv"
+    virtualenv_command: /usr/bin/python3 -m venv
+  notify: Restart fui
+
+- name: Create the config directory
+  ansible.builtin.file:
+    path: "{{ fui_config_dir }}"
+    state: directory
+    owner: root
+    group: "{{ fui_group }}"
+    mode: "0750"
+
+- name: Install the server instance registry
+  ansible.builtin.template:
+    src: instances.json.j2
+    dest: "{{ fui_instances_file }}"
+    owner: root
+    group: "{{ fui_group }}"
+    mode: "0640"
+  notify: Restart fui
+
+- name: Install fixed mod synchronization helpers
+  ansible.builtin.template:
+    src: factorio-sync-mods.sh.j2
+    dest: "{{ item.config_dir }}/factorio-sync-mods.sh"
+    owner: root
+    group: root
+    mode: "0700"
+    validate: sh -n %s
+  loop: "{{ fui_instances }}"
+  loop_control:
+    label: "{{ item.id }}"
+  when: item.mod_sync_enabled | default(true) | bool
+
+- name: Remove disabled mod synchronization helpers
+  ansible.builtin.file:
+    path: "{{ item.config_dir }}/factorio-sync-mods.sh"
+    state: absent
+  loop: "{{ fui_instances }}"
+  loop_control:
+    label: "{{ item.id }}"
+  when: not (item.mod_sync_enabled | default(true) | bool)
+
+- name: Install the environment file
+  ansible.builtin.template:
+    src: fui.env.j2
+    dest: "{{ fui_config_dir }}/fui.env"
+    owner: root
+    group: "{{ fui_group }}"
+    mode: "0640"
+  notify: Restart fui
+
+- name: Grant the fui account permission to control only the factorio unit
+  ansible.builtin.template:
+    src: sudoers-fui.j2
+    dest: /etc/sudoers.d/fui
+    owner: root
+    group: root
+    mode: "0440"
+    validate: /usr/sbin/visudo -cf %s
+
+- name: Install the systemd unit
+  ansible.builtin.template:
+    src: fui.service.j2
+    dest: /etc/systemd/system/fui.service
+    owner: root
+    group: root
+    mode: "0644"
+  notify:
+    - Reload systemd for fui
+    - Restart fui
+
+- name: Enable and start fui
+  ansible.builtin.systemd_service:
+    name: fui.service
+    enabled: true
+    state: started
+    daemon_reload: true

@@ -1,0 +1,25 @@
+---
+# Copy this file to instances_custom.yml and edit it for the deployment.
+# The real file is local-only and ignored by Git.
+factorio_custom_instances:
+  - id: default
+    name: My Factorio Server
+    base_dir: "{{ factorio_instances_base_dir }}/default"
+    port: 34197
+    save_name: default
+    scenario_name: ""
+    manage_mods: false
+    mod_sync_enabled: true
+    description: A Factorio multiplayer server
+    max_players: 10
+    public: false
+    autosave_interval: 20
+    autosave_slots: 5
+    game_password: "{{ vault_factorio_game_password | default('', true) }}"
+
+  # Optional existing-install migration fields:
+  # legacy_state_dir: /var/lib/factorio
+  # legacy_config_dir: /etc/factorio
+
+  # Optional one-time save seed. The local saves directory is ignored by Git:
+  # initial_save: "{{ playbook_dir }}/../saves/my-world.zip"

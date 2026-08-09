@@ -1,0 +1,10 @@
+{#- Factorio rewrites this file whenever it discovers a new mod, so it is
+    re-rendered on every run to keep the enabled set declarative. -#}
+{%- set mods = [{"name": "base", "enabled": true}] -%}
+{%- for mod in factorio_dlc_mods -%}
+{%-   set _ = mods.append({"name": mod, "enabled": true}) -%}
+{%- endfor -%}
+{%- for archive in factorio_local_mods.files | map(attribute='path') | map('basename') | sort -%}
+{%-   set _ = mods.append({"name": archive | regex_replace('_[^_]+\.zip$', ''), "enabled": true}) -%}
+{%- endfor -%}
+{{ {"mods": mods} | to_nice_json }}

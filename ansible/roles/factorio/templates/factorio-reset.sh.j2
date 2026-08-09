@@ -1,0 +1,23 @@
+#!/bin/sh
+# Managed by Ansible - local edits will be overwritten.
+# Retires the current map so the next start boots the scenario from scratch.
+# Run as root by the web console through a single sudoers entry, so it takes no
+# arguments: every path it touches is fixed at deploy time.
+set -eu
+
+saves="{{ factorio_state_dir }}/saves"
+archive="{{ factorio_state_dir }}/saves-archive/$(date -u +%Y%m%dT%H%M%SZ)"
+
+# Factorio rewrites the save it loaded when it shuts down, so the map has to be
+# moved with the server down or it is simply written back.
+systemctl stop {{ factorio_service_name }}
+
+# Archived rather than deleted: a mistaken reset is otherwise unrecoverable.
+# The archive lives outside saves/ so the launcher no longer sees a map and
+# falls back to starting the scenario.
+if find "$saves" -maxdepth 1 -name '*.zip' -print -quit | grep -q .; then
+    mkdir -p "$archive"
+    find "$saves" -maxdepth 1 -name '*.zip' -exec mv -t "$archive" {} +
+fi
+
+systemctl start {{ factorio_service_name }}

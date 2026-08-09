@@ -1,0 +1,13 @@
+---
+# Must match the sudoers entry exactly, so keep them driven by the same values.
+fui_systemctl_path: /usr/bin/systemctl
+fui_journalctl_path: /usr/bin/journalctl
+fui_sudo_path: /usr/bin/sudo
+fui_managed_unit: "factorio@{{ factorio_instances[0].id }}.service"
+# Fallbacks for older FUI clients; current routes use instances.json.
+fui_reset_script: "{{ factorio_instances[0].config_dir }}/factorio-reset.sh"
+# Generous next to the other commands: the reset stops the server first, and
+# Factorio is given up to TimeoutStopSec to finish writing its save.
+fui_reset_timeout: 180
+fui_mod_sync_timeout: 900
+fui_instances_file: "{{ fui_config_dir }}/instances.json"

@@ -1,0 +1,55 @@
+# Managed by Ansible - local edits will be overwritten.
+server {
+    listen {{ nginx_listen_port }}{% if nginx_default_server %} default_server{% endif %};
+    listen [::]:{{ nginx_listen_port }}{% if nginx_default_server %} default_server{% endif %};
+    server_name {{ nginx_server_name }};
+
+    root {{ nginx_web_root }};
+    index index.html;
+
+    server_tokens off;
+    add_header X-Content-Type-Options "nosniff" always;
+    add_header X-Frame-Options "DENY" always;
+    add_header Referrer-Policy "no-referrer" always;
+
+    # Deliberately empty landing page.
+    location / {
+        try_files $uri $uri/ =404;
+    }
+
+    location = {{ fui_base_path }} {
+        return 301 {{ fui_base_path }}/;
+    }
+
+    location {{ fui_base_path }}/ {
+        client_max_body_size 513m;
+        proxy_request_buffering off;
+        proxy_pass http://127.0.0.1:{{ fui_port }}/;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header X-Forwarded-Prefix {{ fui_base_path }};
+        proxy_read_timeout 1200s;
+    }
+
+    # The reset stops the game server before starting it again, and Factorio is
+    # allowed up to two minutes to write its final save, so this one endpoint
+    # needs a longer read timeout than the rest of the console.
+    location = {{ fui_base_path }}/api/reset {
+        proxy_pass http://127.0.0.1:{{ fui_port }}/api/reset;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header X-Forwarded-Prefix {{ fui_base_path }};
+        proxy_read_timeout 300s;
+    }
+
+    location = {{ fui_base_path }}/healthz {
+        proxy_pass http://127.0.0.1:{{ fui_port }}/healthz;
+        access_log off;
+    }
+}

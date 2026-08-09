@@ -1,0 +1,30 @@
+# Managed by Ansible - local edits will be overwritten.
+[Unit]
+Description=Factorio Headless Server (%i)
+Documentation=https://wiki.factorio.com/Multiplayer
+After=network-online.target
+Wants=network-online.target
+PartOf=factorio-servers.target
+
+[Service]
+Type=simple
+User={{ factorio_user }}
+Group={{ factorio_group }}
+Restart=on-failure
+RestartSec=10
+
+# Factorio saves and exits cleanly on SIGINT; give it time to finish writing.
+KillSignal=SIGINT
+TimeoutStopSec=120
+
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectHome=true
+ProtectSystem=strict
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+RestrictRealtime=true
+LockPersonality=true

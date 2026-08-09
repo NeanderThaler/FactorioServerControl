@@ -1,0 +1,25 @@
+---
+# Copy to vault.yml and encrypt:
+#   ansible-vault encrypt vault.yml
+# Edit later with:
+#   ansible-vault edit vault.yml
+# vault.yml is local-only, ignored by Git, and blocked by the pre-commit hook.
+
+# The single password guarding /fui. There is no username.
+vault_fui_admin_password: "change-me"
+
+# Signs the session cookie. Generate with:
+#   python3 -c "import secrets; print(secrets.token_hex(32))"
+# Changing it invalidates every existing session.
+vault_fui_secret_key: "change-me"
+
+# Optional in-game password. Leave empty for no password.
+vault_factorio_game_password: ""
+
+# Add one key per additional instance when its game_password references the
+# vault, for example: game_password: "{{ vault_factorio_vanilla_game_password }}"
+vault_factorio_vanilla_game_password: ""
+
+# Optional factorio.com credentials, only needed for public server listing.
+vault_factorio_account_username: ""
+vault_factorio_account_token: ""

@@ -1,0 +1,74 @@
+---
+# Non-secret configuration. Secrets belong in vault.yml (see vault.example.yml).
+
+# --- Factorio -----------------------------------------------------------
+# "stable", "latest", or a pinned version such as "2.0.28".
+factorio_version: stable
+factorio_user: factorio
+factorio_group: factorio
+factorio_install_dir: /opt/factorio
+factorio_user_home: /srv/factorio
+factorio_instances_base_dir: /srv/factorio/instances
+factorio_scenario_src: "{{ playbook_dir }}/../scenarios"
+factorio_mods_src: "{{ playbook_dir }}/../mods"
+factorio_dlc_mods:
+  - elevated-rails
+  - quality
+  - space-age
+
+# Built from the custom and upload source lists by site.yml. Roles and FUI use
+# this normalized list so every instance has the same directory layout.
+factorio_custom_instances: []
+factorio_instances: []
+
+# --- FUI (web console) --------------------------------------------------
+fui_user: fui
+fui_group: fui
+fui_install_dir: /opt/fui
+fui_config_dir: /etc/fui
+fui_port: 8000
+fui_base_path: /fui
+fui_source_dir: "{{ playbook_dir }}/../fui"
+
+# FUI derives its allow-list and helper paths from factorio_instances.
+fui_instances: "{{ factorio_instances }}"
+
+# Login is password-only; there is no username. The session cookie holds a
+# signed token, not the password.
+fui_session_ttl: 604800
+# Must stay false while the site is plain HTTP: a Secure cookie would be
+# dropped by the browser and login would appear to do nothing.
+fui_cookie_secure: false
+
+# --- nginx --------------------------------------------------------------
+nginx_site_name: factorio
+nginx_web_root: /var/www/factorio
+nginx_htpasswd_file: /etc/nginx/.htpasswd_fui
+
+# The host already serves other vhosts on port 80 and alma.dedyn.io owns
+# default_server there. Claiming it twice makes "nginx -t" fail, so this site
+# matches on an exact server_name instead: nginx prefers an exact name match
+# over the default_server fallback, so the bare IP lands here while named
+# requests still reach their own vhost.
+nginx_listen_port: 80
+nginx_default_server: false
+nginx_server_name: "{{ ansible_host }}"
+
+# Leave the distribution default site alone; on a shared host it may be
+# serving something that matters.
+nginx_remove_default_site: false
+
+# --- SSH access ---------------------------------------------------------
+# Every *.pub in this directory is installed into the login account's
+# authorized_keys. Private keys are never read from here.
+ssh_public_key_dir: "{{ playbook_dir }}/../keys"
+
+# --- Firewall -----------------------------------------------------------
+# Off by default: this host listens on ports well beyond the list below, and a
+# default-deny policy would black-hole them. Before enabling, run "ss -tulpn"
+# on the host and add every port that must keep working.
+common_manage_firewall: false
+
+firewall_allowed_rules:
+  - { port: "{{ ansible_port | default(22) }}", proto: tcp, comment: SSH }
+  - { port: "{{ nginx_listen_port }}", proto: tcp, comment: HTTP }

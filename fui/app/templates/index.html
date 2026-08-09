@@ -1,0 +1,812 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Factorio Server Control</title>
+<link rel="icon" href="{{ request.url_for('static', path='factorio-server-control.svg') }}" type="image/svg+xml">
+<style>
+  :root {
+    color-scheme: dark;
+    --black: #171717;
+    --gray-dark: #313030;
+    --gray-medium: #403f40;
+    --gray-light: #8e8e8e;
+    --cream: #ffe6c0;
+    --orange: #e39827;
+    --green: #5eb663;
+    --red: #cc4b47;
+    --white: #f9f9f9;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--black); color: var(--white);
+         font: 15px/1.5 "Trebuchet MS", Verdana, sans-serif; }
+  button, select, input { font: inherit; }
+  button { cursor: pointer; }
+  button:disabled { cursor: not-allowed; opacity: 0.45; }
+  .accentuated { border: 1px solid rgba(0, 0, 0, 0.45); border-top-color: rgba(255, 255, 255, 0.12); }
+  .sidebar { position: fixed; inset: 0 auto 0 0; width: 22rem; overflow-y: auto;
+             background: var(--gray-dark); box-shadow: 5px 0 18px rgba(0, 0, 0, 0.32); z-index: 10; }
+  .brand { display: flex; align-items: center; justify-content: space-between; min-height: 4.5rem;
+           padding: 1rem 1.5rem; color: var(--cream); font-size: 1.2rem; font-weight: 700; }
+  .brand-lockup { display: flex; align-items: center; min-width: 0; gap: 0.75rem; }
+  .brand-icon { width: 2.5rem; height: 2.5rem; flex: 0 0 auto; }
+  .brand small { display: block; color: var(--gray-light); font-size: 0.72rem; font-weight: 400; text-transform: uppercase; }
+  .menu-toggle { display: none; width: 2.5rem; height: 2.5rem; border: 0; background: transparent;
+                 color: var(--white); font-size: 1.35rem; }
+  .side-section { padding: 1rem 1.5rem 1.25rem; border-top: 1px solid rgba(255, 255, 255, 0.08);
+                  border-bottom: 1px solid rgba(0, 0, 0, 0.35); }
+  .side-title { margin: 0 0 0.55rem; color: var(--cream); font-size: 1rem; font-weight: 700; }
+  select { width: 100%; min-width: 0; padding: 0.55rem 0.65rem; border: 1px solid #202020;
+           border-radius: 2px; background: #222; color: var(--white); }
+  .unit { min-height: 1.25rem; margin-top: 0.35rem; overflow-wrap: anywhere;
+          color: var(--gray-light); font: 0.72rem/1.4 Consolas, monospace; }
+  .server-switcher { position: relative; }
+  .server-trigger { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center;
+                    gap: 0.65rem; width: 100%; min-height: 3.4rem; padding: 0.65rem 0.75rem;
+                    border: 1px solid #171717; border-radius: 2px; background: #202020; color: var(--white);
+                    box-shadow: inset 0 3px 8px rgba(0, 0, 0, 0.55); text-align: left; }
+  .server-trigger:hover { border-color: var(--orange); }
+  .server-trigger-copy { min-width: 0; }
+  .server-trigger-name { display: block; overflow: hidden; font-weight: 700; text-overflow: ellipsis; white-space: nowrap; }
+  .server-trigger-meta { display: block; color: #aaa; font-size: 0.75rem; font-weight: 400; }
+  .server-chevron { color: var(--gray-light); }
+  .server-menu { margin-top: 0.35rem; padding: 0.25rem; border: 1px solid #171717; border-radius: 2px;
+                 background: #202020; box-shadow: 0 12px 22px rgba(0, 0, 0, 0.42); }
+  .server-option { display: block; width: 100%; padding: 0.65rem 0.7rem; border: 1px solid transparent;
+                   border-radius: 1px; background: var(--gray-medium); color: var(--white); text-align: left; }
+  .server-option + .server-option { margin-top: 0.25rem; }
+  .server-option:hover, .server-option.selected { border-color: var(--orange); background: #4a4848; }
+  .server-option-head { display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; }
+  .server-option-name { overflow: hidden; font-weight: 700; text-overflow: ellipsis; white-space: nowrap; }
+  .server-option-status { display: flex; align-items: center; gap: 0.35rem; color: #c4c4c4; font-size: 0.72rem; }
+  .server-option-meta, .server-option-last { display: block; margin-top: 0.25rem; color: #bbb; font-size: 0.72rem; }
+  .server-option-last { color: var(--gray-light); }
+  .server-facts { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0.55rem 0.8rem;
+                  margin-top: 0.75rem; }
+  .server-fact { min-width: 0; }
+  .server-fact.wide { grid-column: 1 / -1; }
+  .server-fact span { display: block; color: var(--gray-light); font-size: 0.68rem; text-transform: uppercase; }
+  .server-fact strong { display: block; overflow: hidden; color: #ddd; font-size: 0.78rem;
+                        font-weight: 400; text-overflow: ellipsis; white-space: nowrap; }
+  .dot { width: 0.65rem; height: 0.65rem; flex: 0 0 auto; border-radius: 50%; background: var(--gray-light); }
+  .dot.up { background: var(--green); box-shadow: 0 0 6px rgba(94, 182, 99, 0.7); }
+  .dot.down { background: var(--red); }
+  .tabs { padding: 0.25rem; border-radius: 2px; background: #202020;
+          box-shadow: inset 0 3px 8px rgba(0, 0, 0, 0.55); }
+  .tab { display: flex; align-items: center; justify-content: space-between; width: 100%; min-height: 2.55rem;
+         padding: 0.55rem 0.85rem; border: 1px solid rgba(0, 0, 0, 0.32); border-radius: 1px;
+         background: var(--gray-light); color: #151515; font-weight: 700; text-align: left; }
+  .tab + .tab { margin-top: 0.25rem; }
+  .tab:hover:not(.active) { background: #aaa; box-shadow: 0 0 4px rgba(227, 152, 39, 0.8); }
+  .tab.active { background: var(--orange); }
+  .badge { min-width: 1.4rem; padding: 0.05rem 0.35rem; border-radius: 2px; background: #5f5f5f;
+           color: var(--white); font-size: 0.72rem; text-align: center; }
+  .badge.live { background: #247d2b; }
+  .logout button { width: 100%; padding: 0.55rem 0.85rem; border: 1px solid #8d2825; border-radius: 2px;
+                   background: var(--red); color: #151515; font-weight: 700; }
+  .logout button:hover { background: #e36b67; box-shadow: 0 0 4px rgba(204, 75, 71, 0.8); }
+  .workspace { min-height: 100vh; margin-left: 22rem; padding: 3rem 2.5rem; }
+  main { width: min(68rem, 100%); margin: 0 auto; }
+  .page-head { margin-bottom: 1.4rem; }
+  h1 { margin: 0; color: var(--cream); font-size: 1.45rem; }
+  .page-head p { margin: 0.2rem 0 0; color: var(--gray-light); }
+  .card { margin-bottom: 1.5rem; padding: 1rem; border-radius: 2px; background: var(--gray-dark);
+          box-shadow: 0 12px 24px rgba(0, 0, 0, 0.22); }
+  .card-title { margin: 0 0 0.7rem; color: var(--cream); font-size: 1.05rem; }
+  .card-body { padding: 1.1rem 1.35rem; border-radius: 2px; background: var(--gray-medium);
+               box-shadow: inset 0 4px 10px rgba(0, 0, 0, 0.4); }
+  .state { display: flex; align-items: center; gap: 0.65rem; font-size: 1.1rem; font-weight: 700; }
+  dl { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 1.2rem;
+       margin: 1.2rem 0 0; font-size: 0.88rem; }
+  dl > div { min-width: 0; }
+  dt { color: var(--gray-light); font-size: 0.75rem; }
+  dd { margin: 0.15rem 0 0; overflow-wrap: anywhere; font-variant-numeric: tabular-nums; }
+  .actions { display: flex; gap: 0.6rem; flex-wrap: wrap; }
+  .actions button, #refresh { min-height: 2.35rem; padding: 0.45rem 1rem; border: 1px solid rgba(0, 0, 0, 0.42);
+                             border-radius: 2px; background: var(--gray-light); color: #151515; font-weight: 700; }
+  .actions button:hover:not(:disabled), #refresh:hover { background: var(--orange); box-shadow: 0 0 4px rgba(227, 152, 39, 0.8); }
+  .actions button.start { background: var(--green); }
+  .actions button.stop { background: #aaa; }
+  .actions button.danger { margin-left: auto; background: var(--red); }
+  pre { max-height: 28rem; margin: 0; overflow: auto; padding: 1rem; border: 1px solid #262626;
+        border-radius: 2px; background: #161616; color: #e5e5e5; font: 0.8rem/1.5 Consolas, monospace; white-space: pre-wrap; }
+  .error { min-height: 1.5rem; color: #ff928d; font-size: 0.9rem; }
+  .logbar { display: flex; align-items: center; justify-content: space-between; gap: 1rem; margin-bottom: 0.75rem; }
+  .logbar h2 { margin: 0; color: var(--cream); font-size: 1.05rem; }
+  .log-options { display: flex; align-items: center; justify-content: flex-end; gap: 1rem; flex-wrap: wrap; }
+  .toggle { display: flex; align-items: center; gap: 0.4rem; color: #c1c1c1; font-size: 0.82rem; }
+  table { width: 100%; border-collapse: collapse; font-size: 0.9rem; }
+  th { padding: 0 0.75rem 0.55rem 0; border-bottom: 1px solid #282828; color: #b7b7b7;
+       font-size: 0.77rem; font-weight: 700; text-align: left; }
+  td { padding: 0.6rem 0.75rem 0.6rem 0; border-bottom: 1px solid #353535; font-variant-numeric: tabular-nums; }
+  tr:last-child td { border-bottom: none; }
+  .num { text-align: right; }
+  .who { display: flex; align-items: center; gap: 0.5rem; font-weight: 700; }
+  .mod-state { display: inline-block; min-width: 4.7rem; padding: 0.1rem 0.4rem; border-radius: 2px;
+               background: #595959; color: var(--white); font-size: 0.75rem; text-align: center; }
+  .mod-state.enabled { background: #247d2b; }
+  .mod-state.missing { background: #9b302c; }
+  .field { margin-bottom: 1rem; }
+  .field label { display: block; margin-bottom: 0.3rem; color: #c1c1c1; font-size: 0.8rem; }
+  .field input[type="text"], .field input[type="file"], .field textarea { width: 100%; min-height: 2.65rem;
+    padding: 0.55rem 0.7rem; border: 1px solid #202020; border-radius: 2px;
+    background: #222; color: var(--white); }
+  .field input[type="file"] { padding: 0.45rem; }
+  .field textarea { min-height: 5rem; resize: vertical; font: inherit; }
+  .field input:focus, .field textarea:focus { outline: 2px solid var(--orange); outline-offset: 1px; }
+  .upload-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
+  .hint { margin: 0.9rem 0 0; color: #aaa; font-size: 0.8rem; }
+  .muted { color: #aaa; }
+  [hidden] { display: none !important; }
+  @media (max-width: 760px) {
+    .sidebar { position: static; width: 100%; max-height: none; }
+    .brand { min-height: 4rem; }
+    .menu-toggle { display: block; }
+    .sidebar-nav { display: none; }
+    .sidebar.open .sidebar-nav { display: block; }
+    .workspace { margin-left: 0; padding: 1.25rem 0.75rem; }
+    dl { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .card-body { padding: 1rem; overflow-x: auto; }
+    .actions button { flex: 1 1 7rem; }
+    .actions button.danger { margin-left: 0; }
+    .logbar { align-items: flex-start; }
+    .log-options { gap: 0.5rem; }
+    .upload-grid { grid-template-columns: 1fr; gap: 0; }
+  }
+</style>
+</head>
+<body>
+<aside class="sidebar accentuated" id="sidebar">
+  <div class="brand">
+    <span class="brand-lockup">
+      <img class="brand-icon" src="{{ request.url_for('static', path='factorio-server-control.svg') }}" alt="">
+      <span>Factorio Server Control<small>Administration · v{{ version }}</small></span>
+    </span>
+    <button class="menu-toggle" id="menu-toggle" type="button" aria-label="Toggle navigation" aria-expanded="false">☰</button>
+  </div>
+  <div class="sidebar-nav" id="sidebar-nav">
+    <section class="side-section">
+      <h2 class="side-title">Servers</h2>
+      <div class="server-switcher">
+        <button class="server-trigger" id="server-trigger" type="button" aria-haspopup="listbox" aria-expanded="false">
+          <span class="dot" id="side-dot"></span>
+          <span class="server-trigger-copy">
+            <span class="server-trigger-name" id="server-name">Loading...</span>
+            <span class="server-trigger-meta" id="server-meta">Fetching server status</span>
+          </span>
+          <span class="server-chevron" aria-hidden="true">▾</span>
+        </button>
+        <div class="server-menu" id="server-menu" role="listbox" hidden></div>
+      </div>
+      <div class="server-facts">
+        <div class="server-fact"><span>Players</span><strong id="side-players">–</strong></div>
+        <div class="server-fact"><span>Uptime</span><strong id="side-uptime">–</strong></div>
+        <div class="server-fact wide"><span>Last player join</span><strong id="side-last-join">–</strong></div>
+      </div>
+      <div class="unit" id="unit"></div>
+    </section>
+    <nav class="side-section" aria-label="Server management">
+      <h2 class="side-title">Server Management</h2>
+      <div class="tabs">
+        <button class="tab active" data-tab="server">Controls</button>
+        <button class="tab" data-tab="players">Players<span class="badge" id="onlinecount">0</span></button>
+        <button class="tab" data-tab="mods">Mods</button>
+        <button class="tab" data-tab="newserver">New Server</button>
+      </div>
+    </nav>
+    <section class="side-section">
+      <form class="logout" method="post" action="{{ logout_url }}">
+        <button type="submit">Sign out</button>
+      </form>
+    </section>
+  </div>
+</aside>
+
+<div class="workspace">
+<main>
+  <header class="page-head">
+    <h1 id="page-title">Server Controls</h1>
+    <p id="page-subtitle">Manage the selected Factorio instance.</p>
+  </header>
+
+  <div id="panel-server">
+  <section class="card accentuated">
+    <h2 class="card-title">Server Status</h2>
+    <div class="card-body">
+    <div class="state"><span class="dot" id="dot"></span><span id="state">Loading…</span></div>
+    <dl>
+      <div><dt>Sub state</dt><dd id="substate">–</dd></div>
+      <div><dt>Start-up</dt><dd id="enabled">–</dd></div>
+      <div><dt>Active since</dt><dd id="since">–</dd></div>
+      <div><dt>Main PID</dt><dd id="pid">–</dd></div>
+      <div><dt>Restarts</dt><dd id="restarts">–</dd></div>
+    </dl>
+    </div>
+  </section>
+
+  <section class="card accentuated">
+    <h2 class="card-title">Controls</h2>
+    <div class="card-body">
+    <div class="actions">
+      <button class="start" data-action="start">Start</button>
+      <button class="stop" data-action="stop">Stop</button>
+      <button data-action="restart">Restart</button>
+      <button id="refresh">Refresh</button>
+      <button class="danger" id="reset">Reset map</button>
+    </div>
+    <p class="hint" id="reset-hint">Reset archives the current save on the server and boots the scenario from scratch.</p>
+    <p class="error" id="error"></p>
+    </div>
+  </section>
+
+  <section class="card accentuated">
+    <div class="card-body">
+    <div class="logbar">
+      <h2>Log</h2>
+      <div class="log-options">
+        <label class="toggle">
+          <input type="checkbox" id="cleanlogs" checked> Human-readable
+        </label>
+        <label class="toggle">
+          <input type="checkbox" id="allruns"> Show earlier runs
+        </label>
+      </div>
+    </div>
+    <pre id="logs">Loading logs…</pre>
+    </div>
+  </section>
+  </div>
+
+  <div id="panel-players" hidden>
+  <section class="card accentuated">
+    <div class="card-body">
+    <div class="logbar">
+      <h2>Players</h2>
+      <span class="toggle" id="playersummary">–</span>
+    </div>
+    <table>
+      <thead>
+        <tr>
+          <th>Player</th>
+          <th>Status</th>
+          <th class="num">Sessions</th>
+          <th class="num">Total online</th>
+          <th>Last seen</th>
+        </tr>
+      </thead>
+      <tbody id="playerrows"></tbody>
+    </table>
+    <p class="hint" id="playerhint"></p>
+    </div>
+  </section>
+  </div>
+
+  <div id="panel-mods" hidden>
+  <section class="card accentuated">
+    <div class="card-body">
+    <div class="logbar">
+      <h2>Installed mods</h2>
+      <span class="toggle" id="modsummary">Loading...</span>
+    </div>
+    <table>
+      <thead>
+        <tr>
+          <th>Mod</th>
+          <th>Version</th>
+          <th>State</th>
+          <th>Files</th>
+        </tr>
+      </thead>
+      <tbody id="modrows"></tbody>
+    </table>
+    </div>
+  </section>
+  <section class="card accentuated">
+    <div class="card-body">
+    <div class="logbar">
+      <h2>Sync mods from latest save</h2>
+    </div>
+    <p>Downloads the exact mod versions recorded in the selected server's newest save.</p>
+    <div class="actions">
+      <button id="syncmods">Sync mods</button>
+    </div>
+    <p class="hint">The selected server is stopped during synchronization. Existing mod archives are replaced after every download passes its portal checksum.</p>
+    <p class="error" id="moderror"></p>
+    <pre id="modresult" hidden></pre>
+    </div>
+  </section>
+  </div>
+
+  <div id="panel-newserver" hidden>
+  <section class="card accentuated">
+    <h2 class="card-title">Create server from save</h2>
+    <div class="card-body">
+      <form id="upload-form">
+        <div class="upload-grid">
+          <div class="field">
+            <label for="upload-name">Server name</label>
+            <input type="text" id="upload-name" name="name" maxlength="80" required>
+          </div>
+          <div class="field">
+            <label for="upload-slot">Server slot</label>
+            <select id="upload-slot" name="slot" required></select>
+          </div>
+        </div>
+        <div class="field">
+          <label for="upload-description">Server description</label>
+          <textarea id="upload-description" name="description" maxlength="200" required></textarea>
+        </div>
+        <div class="field">
+          <label for="upload-save">Factorio save</label>
+          <input type="file" id="upload-save" name="save" accept=".zip,application/zip" required>
+        </div>
+        <label class="toggle">
+          <input type="checkbox" id="upload-public" name="public" checked> Public server
+        </label>
+        <div class="actions" style="margin-top: 1rem">
+          <button class="start" id="upload-submit" type="submit">Create and start</button>
+        </div>
+        <p class="error" id="upload-error"></p>
+        <pre id="upload-result" hidden></pre>
+      </form>
+    </div>
+  </section>
+  </div>
+</main>
+</div>
+
+<script>
+(function () {
+  "use strict";
+
+  var buttons = Array.prototype.slice.call(document.querySelectorAll("button[data-action]"));
+  var resetButton = document.getElementById("reset");
+  var busyButtons = buttons.concat([resetButton]);
+  var errorBox = document.getElementById("error");
+  var syncModsButton = document.getElementById("syncmods");
+  var serverTrigger = document.getElementById("server-trigger");
+  var serverMenu = document.getElementById("server-menu");
+  var uploadForm = document.getElementById("upload-form");
+  var uploadSubmit = document.getElementById("upload-submit");
+  var currentServer = null;
+  var serverCatalog = [];
+
+  function serverPath(path) {
+    return "api/servers/" + encodeURIComponent(currentServer) + path;
+  }
+
+  function text(id, value) {
+    document.getElementById(id).textContent = value === null || value === "" ? "–" : String(value);
+  }
+
+  function setBusy(busy) {
+    busyButtons.forEach(function (button) { button.disabled = busy; });
+  }
+
+  function showError(message) {
+    errorBox.textContent = message || "";
+  }
+
+  function request(path, options) {
+    var config = options || {};
+    config.headers = Object.assign({ "X-Requested-With": "fui" }, config.headers || {});
+    config.credentials = "same-origin";
+    return fetch(path, config).then(function (response) {
+      if (response.status === 401) {
+        window.location.assign("login");
+        throw new Error("Session expired");
+      }
+      return response.json().catch(function () { return {}; }).then(function (body) {
+        if (!response.ok) {
+          throw new Error(body.detail || response.status + " " + response.statusText);
+        }
+        return body;
+      });
+    });
+  }
+
+  function render(status) {
+    var dot = document.getElementById("dot");
+    dot.className = "dot " + (status.running ? "up" : "down");
+    document.getElementById("side-dot").className = dot.className;
+    text("state", status.running ? "Running" : "Stopped (" + status.active_state + ")");
+    text("substate", status.sub_state);
+    text("enabled", status.enabled_state);
+    text("since", status.running ? status.since : null);
+    text("pid", status.main_pid || null);
+    text("restarts", status.restarts);
+    var server = serverCatalog.find(function (item) { return item.id === currentServer; });
+    if (server) {
+      server.status = status;
+      renderServerSummary(server);
+    }
+  }
+
+  function refreshStatus() {
+    return request(serverPath("/status")).then(render);
+  }
+
+  function refreshLogs() {
+    var allRuns = document.getElementById("allruns").checked;
+    var cleanLogs = document.getElementById("cleanlogs").checked;
+    return request(serverPath("/logs?lines=200&current_run=" + (allRuns ? "false" : "true") +
+      "&clean=" + (cleanLogs ? "true" : "false")))
+      .then(function (body) {
+        document.getElementById("logs").textContent =
+          body.lines.length ? body.lines.join("\n") :
+            (cleanLogs ? "No player or server events in this run." : "No log entries.");
+      });
+  }
+
+  function duration(seconds) {
+    var total = Math.max(0, Math.round(seconds || 0));
+    var days = Math.floor(total / 86400);
+    var hours = Math.floor((total % 86400) / 3600);
+    var minutes = Math.floor((total % 3600) / 60);
+    if (days) { return days + "d " + hours + "h"; }
+    if (hours) { return hours + "h " + minutes + "m"; }
+    if (minutes) { return minutes + "m " + (total % 60) + "s"; }
+    return total + "s";
+  }
+
+  function stamp(epoch) {
+    return epoch ? new Date(epoch * 1000).toLocaleString() : "–";
+  }
+
+  function relativeStamp(epoch) {
+    if (!epoch) { return "No joins recorded"; }
+    return duration(Math.max(0, Date.now() / 1000 - epoch)) + " ago";
+  }
+
+  function serverUptime(server) {
+    return server.status.running ? duration(server.status.uptime_seconds) : "–";
+  }
+
+  function renderServerSummary(server) {
+    var running = server.status.running;
+    var online = server.players.online_count;
+    var lastJoin = server.players.last_join;
+    document.getElementById("side-dot").className = "dot " + (running ? "up" : "down");
+    text("server-name", server.name);
+    text("server-meta", (running ? "Running" : "Stopped") + " · " + online + " online");
+    text("side-players", online + " online");
+    text("side-uptime", serverUptime(server));
+    text("side-last-join", lastJoin ? lastJoin.name + " · " + relativeStamp(lastJoin.at) : null);
+    text("unit", server.service);
+  }
+
+  function renderServerMenu() {
+    serverMenu.textContent = "";
+    serverCatalog.forEach(function (server) {
+      var option = document.createElement("button");
+      option.type = "button";
+      option.className = "server-option" + (server.id === currentServer ? " selected" : "");
+      option.dataset.serverId = server.id;
+      option.setAttribute("role", "option");
+      option.setAttribute("aria-selected", server.id === currentServer ? "true" : "false");
+
+      var head = document.createElement("span");
+      head.className = "server-option-head";
+      var name = document.createElement("span");
+      name.className = "server-option-name";
+      name.textContent = server.name;
+      var status = document.createElement("span");
+      status.className = "server-option-status";
+      var dot = document.createElement("span");
+      dot.className = "dot " + (server.status.running ? "up" : "down");
+      status.appendChild(dot);
+      status.appendChild(document.createTextNode(server.status.running ? "Running" : "Stopped"));
+      head.appendChild(name);
+      head.appendChild(status);
+      option.appendChild(head);
+
+      var meta = document.createElement("span");
+      meta.className = "server-option-meta";
+      meta.textContent = server.players.online_count + " online · uptime " + serverUptime(server);
+      option.appendChild(meta);
+      var last = document.createElement("span");
+      last.className = "server-option-last";
+      last.textContent = server.players.last_join
+        ? "Last join: " + server.players.last_join.name + " · " + relativeStamp(server.players.last_join.at)
+        : "No player joins recorded";
+      option.appendChild(last);
+      serverMenu.appendChild(option);
+    });
+  }
+
+  function cell(row, value, className) {
+    var td = row.insertCell();
+    if (className) { td.className = className; }
+    td.textContent = value;
+    return td;
+  }
+
+  function renderPlayers(body) {
+    var badge = document.getElementById("onlinecount");
+    badge.textContent = body.online_count;
+    badge.className = "badge" + (body.online_count ? " live" : "");
+
+    document.getElementById("playersummary").textContent =
+      body.online_count + " online · " + body.players.length + " seen" +
+      (body.window_start ? " · since " + stamp(body.window_start) : "");
+
+    var tbody = document.getElementById("playerrows");
+    tbody.textContent = "";
+
+    if (!body.players.length) {
+      var empty = tbody.insertRow();
+      var only = empty.insertCell();
+      only.colSpan = 5;
+      only.className = "muted";
+      only.textContent = "Nobody has joined yet.";
+    }
+
+    body.players.forEach(function (player) {
+      var row = tbody.insertRow();
+      var who = row.insertCell();
+      who.className = "who";
+      var dot = document.createElement("span");
+      dot.className = "dot" + (player.online ? " up" : "");
+      who.appendChild(dot);
+      // Player names are untrusted, so they are only ever set as text.
+      who.appendChild(document.createTextNode(player.name));
+
+      cell(row, player.online ? "Online " + duration(player.current_seconds) : "Offline",
+           player.online ? "" : "muted");
+      cell(row, player.sessions, "num");
+      cell(row, duration(player.total_seconds), "num");
+      cell(row, player.online ? "now" : stamp(player.last_seen));
+    });
+
+    document.getElementById("playerhint").textContent = body.truncated
+      ? "Only the most recent events are read, so totals are a lower bound."
+      : "Totals are derived from join/leave lines still held in the journal.";
+    var server = serverCatalog.find(function (item) { return item.id === currentServer; });
+    if (server) {
+      server.players.online_count = body.online_count;
+      server.players.last_join = body.last_join;
+      renderServerSummary(server);
+    }
+  }
+
+  function refreshPlayers() {
+    return request(serverPath("/players")).then(renderPlayers);
+  }
+
+  function renderMods(body) {
+    var tbody = document.getElementById("modrows");
+    tbody.textContent = "";
+    document.getElementById("modsummary").textContent =
+      body.mods.filter(function (mod) { return mod.enabled; }).length +
+      " enabled · " + body.mods.length + " configured";
+
+    if (!body.mods.length) {
+      var empty = tbody.insertRow();
+      var only = empty.insertCell();
+      only.colSpan = 4;
+      only.className = "muted";
+      only.textContent = "No mods are configured.";
+    }
+
+    body.mods.forEach(function (mod) {
+      var row = tbody.insertRow();
+      cell(row, mod.name);
+      cell(row, mod.version || "Unknown", mod.version ? "" : "muted");
+      var state = cell(row, "");
+      var stateBadge = document.createElement("span");
+      stateBadge.className = "mod-state" + (mod.enabled ? " enabled" : "");
+      stateBadge.textContent = mod.enabled ? "Enabled" : "Disabled";
+      state.appendChild(stateBadge);
+      var files = cell(row, "");
+      var filesBadge = document.createElement("span");
+      filesBadge.className = "mod-state" + (mod.installed ? "" : " missing");
+      filesBadge.textContent = mod.installed ? "Installed" : "Missing";
+      files.appendChild(filesBadge);
+    });
+  }
+
+  function refreshMods() {
+    return request(serverPath("/mods")).then(renderMods);
+  }
+
+  function refreshAll() {
+    if (!currentServer) { return Promise.resolve(); }
+    return Promise.all([refreshStatus(), refreshLogs(), refreshPlayers(), refreshMods()])
+      .catch(function (error) { showError(error.message); });
+  }
+
+  function applySelectedServer() {
+    var selected = serverCatalog.find(function (server) { return server.id === currentServer; });
+    syncModsButton.disabled = !selected || !selected.mod_sync_enabled;
+    resetButton.hidden = !selected || !selected.reset_enabled;
+    document.getElementById("reset-hint").hidden = resetButton.hidden;
+    if (selected) { renderServerSummary(selected); }
+    renderServerMenu();
+  }
+
+  function loadServers(preferredId, refreshSelected) {
+    return request("api/servers").then(function (body) {
+      serverCatalog = body.servers;
+      var wanted = preferredId || currentServer;
+      currentServer = serverCatalog.some(function (server) { return server.id === wanted; })
+        ? wanted : (serverCatalog[0] ? serverCatalog[0].id : null);
+      applySelectedServer();
+      return refreshSelected === false ? null : refreshAll();
+    });
+  }
+
+  function loadUploadSlots() {
+    return request("api/upload-slots").then(function (body) {
+      var select = document.getElementById("upload-slot");
+      select.textContent = "";
+      body.slots.filter(function (slot) { return slot.available; }).forEach(function (slot) {
+        var option = document.createElement("option");
+        option.value = slot.id;
+        option.textContent = slot.name + " · UDP " + slot.port;
+        select.appendChild(option);
+      });
+      uploadSubmit.disabled = !select.options.length;
+      if (!select.options.length) {
+        var option = document.createElement("option");
+        option.value = "";
+        option.textContent = "No upload slots available";
+        select.appendChild(option);
+      }
+    });
+  }
+
+  buttons.forEach(function (button) {
+    button.addEventListener("click", function () {
+      var action = button.getAttribute("data-action");
+      if (action === "stop" && !window.confirm("Stop the Factorio server?")) { return; }
+      setBusy(true);
+      showError("");
+      // systemd returns once the job is queued, so the new process has usually
+      // logged nothing yet; the timer below fills the pane in.
+      document.getElementById("logs").textContent = "Waiting for the new run…";
+      request(serverPath("/service/" + action), { method: "POST" })
+        .then(render)
+        .then(function () {
+          return new Promise(function (resolve) { window.setTimeout(resolve, 1200); });
+        })
+        .then(refreshLogs)
+        .catch(function (error) { showError(error.message); })
+        .then(function () { setBusy(false); });
+    });
+  });
+
+  document.getElementById("refresh").addEventListener("click", refreshAll);
+
+  resetButton.addEventListener("click", function () {
+    if (!window.confirm("Reset the map?\n\nEveryone is disconnected and the scenario starts over from nothing. The current save is archived on the server.")) { return; }
+    if (window.prompt("Type RESET to confirm.") !== "RESET") { return; }
+    setBusy(true);
+    showError("");
+    document.getElementById("logs").textContent = "Resetting the map…";
+    // The server is stopped and started inside this one request, so it can take
+    // as long as Factorio needs to write its final save.
+    request(serverPath("/reset"), { method: "POST" })
+      .then(render)
+      .then(function () {
+        return new Promise(function (resolve) { window.setTimeout(resolve, 1200); });
+      })
+      .then(refreshLogs)
+      .catch(function (error) { showError(error.message); })
+      .then(function () { setBusy(false); });
+  });
+
+  document.getElementById("allruns").addEventListener("change", function () {
+    refreshLogs().catch(function (error) { showError(error.message); });
+  });
+
+  document.getElementById("cleanlogs").addEventListener("change", function () {
+    refreshLogs().catch(function (error) { showError(error.message); });
+  });
+
+  serverTrigger.addEventListener("click", function () {
+    var open = serverMenu.hidden;
+    serverMenu.hidden = !open;
+    serverTrigger.setAttribute("aria-expanded", open ? "true" : "false");
+  });
+
+  serverMenu.addEventListener("click", function (event) {
+    var option = event.target.closest("[data-server-id]");
+    if (!option) { return; }
+    currentServer = option.dataset.serverId;
+    serverMenu.hidden = true;
+    serverTrigger.setAttribute("aria-expanded", "false");
+    applySelectedServer();
+    showError("");
+    document.getElementById("moderror").textContent = "";
+    document.getElementById("modresult").hidden = true;
+    refreshAll();
+  });
+
+  uploadForm.addEventListener("submit", function (event) {
+    event.preventDefault();
+    var slot = document.getElementById("upload-slot").value;
+    var formData = new FormData();
+    formData.append("name", document.getElementById("upload-name").value);
+    formData.append("description", document.getElementById("upload-description").value);
+    formData.append("public", document.getElementById("upload-public").checked ? "true" : "false");
+    formData.append("save", document.getElementById("upload-save").files[0]);
+    uploadSubmit.disabled = true;
+    document.getElementById("upload-error").textContent = "";
+    document.getElementById("upload-result").hidden = true;
+    request("api/upload-slots/" + encodeURIComponent(slot), { method: "POST", body: formData })
+      .then(function (body) {
+        var result = document.getElementById("upload-result");
+        result.textContent = body.server.name + " started on UDP " + body.server.port +
+          "\n" + body.mods.length + " save-required mods configured";
+        result.hidden = false;
+        uploadForm.reset();
+        document.getElementById("upload-public").checked = true;
+        return Promise.all([loadServers(body.server.id), loadUploadSlots()]);
+      })
+      .catch(function (error) {
+        document.getElementById("upload-error").textContent = error.message;
+      })
+      .then(function () {
+        uploadSubmit.disabled = !document.getElementById("upload-slot").value;
+      });
+  });
+
+  syncModsButton.addEventListener("click", function () {
+    if (!window.confirm("Stop this server and replace its installed mods with the exact versions required by its latest save?")) { return; }
+    syncModsButton.disabled = true;
+    document.getElementById("moderror").textContent = "";
+    document.getElementById("modresult").hidden = true;
+    request(serverPath("/mods/sync"), { method: "POST" })
+      .then(function (body) {
+        var result = document.getElementById("modresult");
+        result.textContent = "Save: " + body.save + "\n" +
+          body.mods.map(function (mod) { return mod.name + " " + mod.version; }).join("\n");
+        result.hidden = false;
+      })
+      .then(refreshAll)
+      .catch(function (error) { document.getElementById("moderror").textContent = error.message; })
+      .then(function () {
+        var selected = serverCatalog.find(function (server) { return server.id === currentServer; });
+        syncModsButton.disabled = !selected || !selected.mod_sync_enabled;
+      });
+  });
+
+  Array.prototype.forEach.call(document.querySelectorAll(".tab"), function (tab) {
+    tab.addEventListener("click", function () {
+      var name = tab.getAttribute("data-tab");
+      var titles = { server: "Server Controls", players: "Players", mods: "Mods", newserver: "New Server" };
+      var subtitles = {
+        server: "Manage the selected Factorio instance.",
+        players: "Review player activity for the selected instance.",
+        mods: "Inspect and synchronize the selected instance's mods.",
+        newserver: "Start a public Factorio server from an uploaded save."
+      };
+      Array.prototype.forEach.call(document.querySelectorAll(".tab"), function (other) {
+        other.classList.toggle("active", other === tab);
+      });
+      document.getElementById("page-title").textContent = titles[name];
+      document.getElementById("page-subtitle").textContent = subtitles[name];
+      document.getElementById("panel-server").hidden = name !== "server";
+      document.getElementById("panel-players").hidden = name !== "players";
+      document.getElementById("panel-mods").hidden = name !== "mods";
+      document.getElementById("panel-newserver").hidden = name !== "newserver";
+      document.getElementById("sidebar").classList.remove("open");
+      document.getElementById("menu-toggle").setAttribute("aria-expanded", "false");
+    });
+  });
+
+  document.getElementById("menu-toggle").addEventListener("click", function () {
+    var sidebar = document.getElementById("sidebar");
+    var open = sidebar.classList.toggle("open");
+    this.setAttribute("aria-expanded", open ? "true" : "false");
+  });
+
+  Promise.all([loadServers(), loadUploadSlots()]).catch(function (error) { showError(error.message); });
+  window.setInterval(function () {
+    loadServers(currentServer, false).then(refreshAll).catch(function (error) { showError(error.message); });
+  }, 10000);
+})();
+</script>
+</body>
+</html>

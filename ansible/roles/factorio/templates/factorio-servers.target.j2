@@ -1,0 +1,10 @@
+# Managed by Ansible - local edits will be overwritten.
+[Unit]
+Description=All configured Factorio servers
+{% for instance in factorio_instances %}
+Wants=factorio@{{ instance.id }}.service
+{% endfor %}
+After=network-online.target
+
+[Install]
+WantedBy=multi-user.target

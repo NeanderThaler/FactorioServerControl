@@ -1,0 +1,93 @@
+---
+- name: Update the apt cache
+  ansible.builtin.apt:
+    update_cache: true
+    cache_valid_time: 3600
+
+- name: Install base packages
+  ansible.builtin.apt:
+    name:
+      - ca-certificates
+      - curl
+      - xz-utils
+      - ufw
+      - unattended-upgrades
+    state: present
+
+- name: Enable unattended security upgrades
+  ansible.builtin.copy:
+    dest: /etc/apt/apt.conf.d/20auto-upgrades
+    content: |
+      APT::Periodic::Update-Package-Lists "1";
+      APT::Periodic::Unattended-Upgrade "1";
+    owner: root
+    group: root
+    mode: "0644"
+
+- name: Find committed public keys
+  ansible.builtin.set_fact:
+    common_ssh_public_keys: "{{ query('fileglob', ssh_public_key_dir ~ '/*.pub') }}"
+
+# exclusive is false so a bad checkout can never strip existing access.
+- name: Install authorized SSH public keys
+  ansible.posix.authorized_key:
+    user: "{{ ansible_user }}"
+    key: "{{ lookup('file', item) }}"
+    state: present
+    exclusive: false
+  loop: "{{ common_ssh_public_keys }}"
+  loop_control:
+    label: "{{ item | basename }}"
+
+- name: Warn when no public keys are committed
+  ansible.builtin.debug:
+    msg: >-
+      No *.pub files found in {{ ssh_public_key_dir }}. Add one before
+      disabling password authentication, or you will be locked out.
+  when: common_ssh_public_keys | length == 0
+
+# Firewall management is opt-in: enabling a default-deny policy on a host that
+# already serves other ports takes those services offline.
+- name: Configure the firewall
+  when: common_manage_firewall | bool
+  block:
+    # Allow rules are applied before the default-deny policy so an in-flight
+    # SSH session is never cut off.
+    - name: Allow required inbound ports
+      community.general.ufw:
+        rule: allow
+        port: "{{ item.port }}"
+        proto: "{{ item.proto }}"
+        comment: "{{ item.comment }}"
+      loop: "{{ firewall_allowed_rules }}"
+
+    - name: Allow Factorio instance ports
+      community.general.ufw:
+        rule: allow
+        port: "{{ item.port }}"
+        proto: udp
+        comment: "Factorio {{ item.id }}"
+      loop: "{{ factorio_instances }}"
+      loop_control:
+        label: "{{ item.id }}:{{ item.port }}"
+
+    - name: Deny inbound traffic by default
+      community.general.ufw:
+        direction: incoming
+        policy: deny
+
+    - name: Allow outbound traffic by default
+      community.general.ufw:
+        direction: outgoing
+        policy: allow
+
+    - name: Enable the firewall
+      community.general.ufw:
+        state: enabled
+
+- name: Report that firewall management is disabled
+  ansible.builtin.debug:
+    msg: >-
+      Skipping ufw: common_manage_firewall is false. Set it to true only after
+      confirming firewall_allowed_rules covers every port this host serves.
+  when: not (common_manage_firewall | bool)

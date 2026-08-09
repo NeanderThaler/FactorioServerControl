@@ -1,0 +1,13 @@
+---
+# Both handlers subscribe to the "Reload nginx" topic and run in order, so a
+# broken config is caught before the running server is touched.
+- name: Validate nginx configuration
+  ansible.builtin.command: nginx -t
+  changed_when: false
+  listen: Reload nginx
+
+- name: Reload nginx service
+  ansible.builtin.systemd_service:
+    name: nginx
+    state: reloaded
+  listen: Reload nginx

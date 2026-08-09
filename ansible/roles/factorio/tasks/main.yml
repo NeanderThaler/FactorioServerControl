@@ -1,0 +1,91 @@
+---
+- name: Create the factorio group
+  ansible.builtin.group:
+    name: "{{ factorio_group }}"
+    system: true
+
+- name: Create the factorio service account
+  ansible.builtin.user:
+    name: "{{ factorio_user }}"
+    group: "{{ factorio_group }}"
+    home: "{{ factorio_user_home }}"
+    shell: /usr/sbin/nologin
+    system: true
+    create_home: false
+
+- name: Create the install directory
+  ansible.builtin.file:
+    path: "{{ factorio_install_dir }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Create the Factorio service data directory
+  ansible.builtin.file:
+    path: "{{ factorio_instances_base_dir }}"
+    state: directory
+    owner: root
+    group: "{{ factorio_group }}"
+    mode: "0750"
+
+# Binaries stay root-owned so a compromised game process cannot rewrite them.
+- name: Download the headless tarball
+  ansible.builtin.get_url:
+    url: "https://factorio.com/get-download/{{ factorio_version }}/headless/linux64"
+    dest: "/var/cache/factorio-headless-{{ factorio_version }}.tar.xz"
+    owner: root
+    group: root
+    mode: "0644"
+  register: factorio_download
+
+- name: Unpack Factorio into /opt
+  ansible.builtin.unarchive:
+    src: "{{ factorio_download.dest }}"
+    dest: /opt
+    remote_src: true
+    owner: root
+    group: root
+    creates: "{{ factorio_install_dir }}/bin/x64/factorio"
+  register: factorio_unpack
+
+- name: Install the shared Factorio instance unit
+  ansible.builtin.template:
+    src: factorio@.service.j2
+    dest: /etc/systemd/system/factorio@.service
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Reload systemd
+
+- name: Configure Factorio instances
+  ansible.builtin.include_tasks: instance.yml
+  loop: "{{ factorio_instances }}"
+  loop_control:
+    loop_var: factorio_instance
+    label: "{{ factorio_instance.id }}"
+
+- name: Check whether the Factorio servers target exists
+  ansible.builtin.stat:
+    path: /etc/systemd/system/factorio-servers.target
+  register: factorio_servers_target_unit
+
+- name: Install the Factorio servers target
+  ansible.builtin.template:
+    src: factorio-servers.target.j2
+    dest: /etc/systemd/system/factorio-servers.target
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Reload systemd
+
+- name: Apply the final systemd configuration
+  ansible.builtin.meta: flush_handlers
+
+- name: Enable and start all configured Factorio servers
+  ansible.builtin.systemd_service:
+    name: factorio-servers.target
+    enabled: true
+    state: started
+    daemon_reload: true
+  when: not ansible_check_mode or factorio_servers_target_unit.stat.exists

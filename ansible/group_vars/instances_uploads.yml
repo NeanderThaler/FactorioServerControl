@@ -1,0 +1,13 @@
+---
+# Dormant capacity for saves uploaded through FUI. Increase this count and run
+# the playbook to provision more slots. Ports are assigned consecutively.
+factorio_upload_slot_count: 2
+factorio_upload_slot_first_port: 34199
+
+factorio_upload_slot_max_players: 10
+factorio_upload_slot_public: true
+factorio_upload_slot_autosave_interval: 20
+factorio_upload_slot_autosave_slots: 5
+
+# Populated by the playbook before the combined instance registry is validated.
+factorio_upload_instances: []

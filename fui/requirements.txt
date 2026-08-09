@@ -1,0 +1,5 @@
+fastapi>=0.115,<1.0
+uvicorn[standard]>=0.32,<1.0
+jinja2>=3.1,<4.0
+# Required by FastAPI to parse the login form.
+python-multipart>=0.0.9,<0.1

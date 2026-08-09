@@ -1,0 +1,10 @@
+# Managed by Ansible - local edits will be overwritten.
+{% if factorio_upload_slot | bool %}
+[Unit]
+ConditionPathExists={{ factorio_state_dir }}/saves/{{ factorio_save_name }}.zip
+
+{% endif %}
+[Service]
+WorkingDirectory={{ factorio_state_dir }}
+ExecStart={{ factorio_config_dir }}/factorio-start.sh
+ReadWritePaths={{ factorio_state_dir }} {{ factorio_runtime_dir }}

@@ -1,0 +1,345 @@
+---
+- name: Set variables for {{ factorio_instance.id }}
+  ansible.builtin.set_fact:
+    factorio_instance_id: "{{ factorio_instance.id }}"
+    factorio_service_name: "factorio@{{ factorio_instance.id }}.service"
+    factorio_legacy_service_name: "{{ factorio_instance.legacy_service_name | default('') }}"
+    factorio_instance_base_dir: "{{ factorio_instance.base_dir }}"
+    factorio_legacy_state_dir: "{{ factorio_instance.legacy_state_dir | default('') }}"
+    factorio_legacy_config_dir: "{{ factorio_instance.legacy_config_dir | default('') }}"
+    factorio_state_dir: "{{ factorio_instance.state_dir }}"
+    factorio_config_dir: "{{ factorio_instance.config_dir }}"
+    factorio_runtime_dir: "{{ factorio_instance.runtime_dir }}"
+    factorio_port: "{{ factorio_instance.port }}"
+    factorio_save_name: "{{ factorio_instance.save_name }}"
+    factorio_initial_save: "{{ factorio_instance.initial_save | default('') }}"
+    factorio_scenario_name: "{{ factorio_instance.scenario_name }}"
+    factorio_manage_mods: "{{ factorio_instance.manage_mods }}"
+    factorio_server_name: "{{ factorio_instance.name }}"
+    factorio_server_description: "{{ factorio_instance.description }}"
+    factorio_max_players: "{{ factorio_instance.max_players }}"
+    factorio_public: "{{ factorio_instance.public }}"
+    factorio_autosave_interval: "{{ factorio_instance.autosave_interval }}"
+    factorio_autosave_slots: "{{ factorio_instance.autosave_slots }}"
+    factorio_game_password: "{{ factorio_instance.game_password | default('', true) }}"
+    factorio_upload_slot: "{{ factorio_instance.upload_slot | default(false) }}"
+
+- name: Define migration paths for {{ factorio_instance_id }}
+  ansible.builtin.set_fact:
+    factorio_migration_paths: >-
+      {{ [
+        {'source': factorio_legacy_state_dir, 'destination': factorio_state_dir},
+        {'source': factorio_legacy_config_dir, 'destination': factorio_config_dir}
+      ] | rejectattr('source', 'equalto', '') | list }}
+
+- name: Check legacy directories for {{ factorio_instance_id }}
+  ansible.builtin.stat:
+    path: "{{ item.source }}"
+  loop: "{{ factorio_migration_paths }}"
+  loop_control:
+    label: "{{ item.source }}"
+  register: factorio_legacy_directories
+  when: item.source != item.destination
+
+- name: Check consolidated directories for {{ factorio_instance_id }}
+  ansible.builtin.stat:
+    path: "{{ item.destination }}"
+  loop: "{{ factorio_migration_paths }}"
+  loop_control:
+    label: "{{ item.destination }}"
+  register: factorio_consolidated_directories
+  when: item.source != item.destination
+
+- name: Refuse ambiguous directory migration for {{ factorio_instance_id }}
+  ansible.builtin.assert:
+    that:
+      - >-
+        not (factorio_legacy_directories.results[item].stat.exists and
+             factorio_consolidated_directories.results[item].stat.exists)
+    fail_msg: >-
+      Both {{ factorio_migration_paths[item].source }} and
+      {{ factorio_migration_paths[item].destination }} exist. Reconcile them
+      manually before deploying so no Factorio data can be overwritten.
+  loop: "{{ range(0, factorio_migration_paths | length) | list }}"
+  loop_control:
+    label: "{{ factorio_migration_paths[item].destination }}"
+
+- name: Check whether the shared instance unit exists
+  ansible.builtin.stat:
+    path: /etc/systemd/system/factorio@.service
+  register: factorio_service_unit
+
+- name: Stop {{ factorio_instance_id }} before directory migration
+  ansible.builtin.systemd_service:
+    name: "{{ factorio_service_name }}"
+    state: stopped
+  when:
+    - factorio_service_unit.stat.exists
+    - factorio_legacy_directories.results | selectattr('stat.exists', 'defined') | selectattr('stat.exists') | list | length > 0
+
+- name: Create the instance base directory for {{ factorio_instance_id }}
+  ansible.builtin.file:
+    path: "{{ factorio_instance_base_dir }}"
+    state: directory
+    owner: root
+    group: "{{ factorio_group }}"
+    mode: "0750"
+
+- name: Move legacy directories for {{ factorio_instance_id }}
+  ansible.builtin.command:
+    argv:
+      - mv
+      - "{{ factorio_migration_paths[item].source }}"
+      - "{{ factorio_migration_paths[item].destination }}"
+    creates: "{{ factorio_migration_paths[item].destination }}"
+    removes: "{{ factorio_migration_paths[item].source }}"
+  loop: "{{ range(0, factorio_migration_paths | length) | list }}"
+  loop_control:
+    label: >-
+      {{ factorio_migration_paths[item].source }} ->
+      {{ factorio_migration_paths[item].destination }}
+  when: factorio_legacy_directories.results[item].stat.exists
+
+- name: Create writable state directories for {{ factorio_instance_id }}
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    owner: "{{ factorio_user }}"
+    group: "{{ factorio_group }}"
+    mode: >-
+      {{ '2770' if (factorio_upload_slot | bool and item == factorio_state_dir ~ '/saves')
+         else '0750' }}
+  loop:
+    - "{{ factorio_state_dir }}"
+    - "{{ factorio_state_dir }}/saves"
+    - "{{ factorio_state_dir }}/mods"
+    - "{{ factorio_state_dir }}/script-output"
+
+- name: Create runtime directory for {{ factorio_instance_id }}
+  ansible.builtin.file:
+    path: "{{ factorio_runtime_dir }}"
+    state: directory
+    owner: "{{ factorio_user }}"
+    group: "{{ factorio_group }}"
+    mode: "0750"
+
+- name: Seed initial save for {{ factorio_instance_id }}
+  ansible.builtin.copy:
+    src: "{{ factorio_initial_save }}"
+    dest: "{{ factorio_state_dir }}/saves/{{ factorio_save_name }}.zip"
+    owner: "{{ factorio_user }}"
+    group: "{{ factorio_group }}"
+    mode: "0640"
+    force: false
+  when: factorio_initial_save | length > 0
+
+- name: Manage repository mods for {{ factorio_instance_id }}
+  when: factorio_manage_mods | bool
+  block:
+    - name: Locate repository mod archives
+      ansible.builtin.find:
+        paths: "{{ factorio_mods_src }}"
+        patterns: "*.zip"
+      delegate_to: localhost
+      become: false
+      register: factorio_local_mods
+
+    - name: Install repository mod archives
+      ansible.builtin.copy:
+        src: "{{ item.path }}"
+        dest: "{{ factorio_state_dir }}/mods/{{ item.path | basename }}"
+        owner: "{{ factorio_user }}"
+        group: "{{ factorio_group }}"
+        mode: "0640"
+      loop: "{{ factorio_local_mods.files }}"
+      loop_control:
+        label: "{{ item.path | basename }}"
+      notify: Restart current factorio instance
+
+    - name: Build desired mod list
+      ansible.builtin.set_fact:
+        factorio_mod_list_desired: "{{ lookup('template', 'mod-list.json.j2') | from_json }}"
+
+    - name: Check existing mod list
+      ansible.builtin.stat:
+        path: "{{ factorio_state_dir }}/mods/mod-list.json"
+      register: factorio_mod_list_stat
+
+    - name: Read existing mod list
+      ansible.builtin.slurp:
+        src: "{{ factorio_state_dir }}/mods/mod-list.json"
+      when: factorio_mod_list_stat.stat.exists
+      register: factorio_mod_list_raw
+
+    - name: Install mod-list.json
+      ansible.builtin.copy:
+        content: "{{ factorio_mod_list_desired | to_nice_json }}\n"
+        dest: "{{ factorio_state_dir }}/mods/mod-list.json"
+        owner: "{{ factorio_user }}"
+        group: "{{ factorio_group }}"
+        mode: "0640"
+      vars:
+        factorio_mod_list_current: "{{ (factorio_mod_list_raw.content | default('e30=') | b64decode | from_json).mods | default([], true) }}"
+      when: >-
+        factorio_mod_list_current | sort(attribute='name')
+        != factorio_mod_list_desired.mods | sort(attribute='name')
+      notify: Restart current factorio instance
+
+- name: Deploy scenario for {{ factorio_instance_id }}
+  when: factorio_scenario_name | length > 0
+  block:
+    - name: Create scenario directory
+      ansible.builtin.file:
+        path: "{{ factorio_state_dir }}/scenarios"
+        state: directory
+        owner: root
+        group: "{{ factorio_group }}"
+        mode: "0750"
+
+    - name: Copy scenario files
+      ansible.builtin.copy:
+        src: "{{ factorio_scenario_src }}/{{ factorio_scenario_name }}/"
+        dest: "{{ factorio_state_dir }}/scenarios/{{ factorio_scenario_name }}/"
+        owner: root
+        group: "{{ factorio_group }}"
+        mode: "0640"
+        directory_mode: "0750"
+      notify: Restart current factorio instance
+
+    - name: Look for pre-scenario freeplay map
+      ansible.builtin.stat:
+        path: "{{ factorio_state_dir }}/saves/{{ factorio_save_name }}.zip"
+      register: factorio_placeholder_map
+
+    - name: Retire pre-scenario freeplay map
+      when: factorio_placeholder_map.stat.exists
+      block:
+        - name: Stop instance before moving its map
+          ansible.builtin.systemd_service:
+            name: "{{ factorio_service_name }}"
+            state: stopped
+
+        - name: Move freeplay map aside
+          ansible.builtin.command:
+            cmd: >-
+              mv {{ factorio_state_dir }}/saves/{{ factorio_save_name }}.zip
+              {{ factorio_state_dir }}/saves/{{ factorio_save_name }}.zip.retired
+            removes: "{{ factorio_state_dir }}/saves/{{ factorio_save_name }}.zip"
+
+- name: Create config directory for {{ factorio_instance_id }}
+  ansible.builtin.file:
+    path: "{{ factorio_config_dir }}"
+    state: directory
+    owner: root
+    group: "{{ factorio_group }}"
+    mode: "0750"
+
+- name: Install instance configuration for {{ factorio_instance_id }}
+  ansible.builtin.template:
+    src: "{{ item.src }}"
+    dest: "{{ factorio_config_dir }}/{{ item.dest }}"
+    owner: root
+    group: "{{ factorio_group }}"
+    mode: "{{ item.mode }}"
+    force: >-
+      {{ not (factorio_upload_slot | bool and item.dest == 'server-settings.json') }}
+    validate: "{{ item.validate | default(omit) }}"
+  loop:
+    - { src: config.ini.j2, dest: config.ini, mode: "0640" }
+    - { src: server-settings.json.j2, dest: server-settings.json, mode: "0640" }
+    - { src: factorio-start.sh.j2, dest: factorio-start.sh, mode: "0750", validate: "sh -n %s" }
+  loop_control:
+    label: "{{ item.dest }}"
+  notify: Restart current factorio instance
+
+- name: Generate initial map for {{ factorio_instance_id }}
+  ansible.builtin.command:
+    argv:
+      - "{{ factorio_install_dir }}/bin/x64/factorio"
+      - --config
+      - "{{ factorio_config_dir }}/config.ini"
+      - --create
+      - "{{ factorio_state_dir }}/saves/{{ factorio_save_name }}.zip"
+    creates: "{{ factorio_state_dir }}/saves/{{ factorio_save_name }}.zip"
+  become: true
+  become_user: "{{ factorio_user }}"
+  when:
+    - factorio_scenario_name | length == 0
+    - not (factorio_upload_slot | bool)
+
+- name: Install map reset helper for {{ factorio_instance_id }}
+  ansible.builtin.template:
+    src: factorio-reset.sh.j2
+    dest: "{{ factorio_config_dir }}/factorio-reset.sh"
+    owner: root
+    group: root
+    mode: "0700"
+    validate: sh -n %s
+
+- name: Check for the legacy unit for {{ factorio_instance_id }}
+  ansible.builtin.stat:
+    path: "/etc/systemd/system/{{ factorio_legacy_service_name }}"
+  register: factorio_legacy_service_unit
+  when: factorio_legacy_service_name | length > 0
+
+- name: Stop and disable the legacy unit for {{ factorio_instance_id }}
+  ansible.builtin.systemd_service:
+    name: "{{ factorio_legacy_service_name }}"
+    enabled: false
+    state: stopped
+  when:
+    - factorio_legacy_service_name | length > 0
+    - factorio_legacy_service_unit.stat.exists
+
+- name: Remove the legacy unit for {{ factorio_instance_id }}
+  ansible.builtin.file:
+    path: "/etc/systemd/system/{{ factorio_legacy_service_name }}"
+    state: absent
+  when:
+    - factorio_legacy_service_name | length > 0
+    - factorio_legacy_service_unit.stat.exists
+  notify: Reload systemd
+
+- name: Create the instance drop-in directory for {{ factorio_instance_id }}
+  ansible.builtin.file:
+    path: "/etc/systemd/system/{{ factorio_service_name }}.d"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Install systemd drop-in for {{ factorio_instance_id }}
+  ansible.builtin.template:
+    src: factorio-instance.conf.j2
+    dest: "/etc/systemd/system/{{ factorio_service_name }}.d/instance.conf"
+    owner: root
+    group: root
+    mode: "0644"
+  notify:
+    - Reload systemd
+    - Restart current factorio instance
+
+- name: Schedule restart after binary update for {{ factorio_instance_id }}
+  ansible.builtin.debug:
+    msg: Factorio binary changed
+  changed_when: factorio_download.changed or factorio_unpack.changed
+  notify: Restart current factorio instance
+
+- name: Check whether {{ factorio_instance_id }} has a startable save
+  ansible.builtin.stat:
+    path: "{{ factorio_state_dir }}/saves/{{ factorio_save_name }}.zip"
+  register: factorio_startable_save
+
+# Flush while this include's instance variables are active, so the dynamic
+# restart handler cannot accidentally target the following instance.
+- name: Apply handlers for {{ factorio_instance_id }}
+  ansible.builtin.meta: flush_handlers
+
+- name: Enable and start {{ factorio_instance_id }}
+  ansible.builtin.systemd_service:
+    name: "{{ factorio_service_name }}"
+    state: started
+    daemon_reload: true
+  when:
+    - not (factorio_upload_slot | bool)
+    - not ansible_check_mode or factorio_service_unit.stat.exists

@@ -1,0 +1,30 @@
+{#- Rendered through to_nice_json so values are always correctly escaped. -#}
+{{
+  {
+    "name": factorio_server_name,
+    "description": factorio_server_description,
+    "tags": [],
+    "max_players": factorio_max_players | int,
+    "visibility": {
+      "public": factorio_public | bool,
+      "lan": true
+    },
+    "username": vault_factorio_account_username | default('', true),
+    "token": vault_factorio_account_token | default('', true),
+    "game_password": factorio_game_password,
+    "require_user_verification": true,
+    "max_upload_in_kilobytes_per_second": 0,
+    "max_upload_slots": 5,
+    "minimum_latency_in_ticks": 0,
+    "max_heartbeats_per_second": 60,
+    "ignore_player_limit_for_returning_players": false,
+    "allow_commands": "admins-only",
+    "autosave_interval": factorio_autosave_interval | int,
+    "autosave_slots": factorio_autosave_slots | int,
+    "afk_autokick_interval": 0,
+    "auto_pause": true,
+    "only_admins_can_pause_the_game": true,
+    "autosave_only_on_server": true,
+    "non_blocking_saving": true
+  } | to_nice_json
+}}

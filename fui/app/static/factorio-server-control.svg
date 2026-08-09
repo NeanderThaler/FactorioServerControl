@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" role="img" aria-labelledby="title desc">
+  <title id="title">Factorio Server Control</title>
+  <desc id="desc">An industrial gear surrounding a connected server status light.</desc>
+  <path fill="#202020" stroke="#0f0f0f" stroke-width="6" d="M64 5 113 33v62l-49 28L15 95V33z"/>
+  <g transform="translate(0 5)">
+    <path fill="#e39827" d="m60 17 8 0 3 12a37 37 0 0 1 10 4l10-7 6 6-7 10a37 37 0 0 1 4 10l12 3v9l-12 3a37 37 0 0 1-4 10l7 10-6 6-10-7a37 37 0 0 1-10 4l-3 12h-8l-3-12a37 37 0 0 1-10-4l-10 7-6-6 7-10a37 37 0 0 1-4-10l-12-3v-9l12-3a37 37 0 0 1 4-10l-7-10 6-6 10 7a37 37 0 0 1 10-4z"/>
+    <circle cx="64" cy="59" r="27" fill="#343434" stroke="#171717" stroke-width="4"/>
+    <path fill="none" stroke="#8e8e8e" stroke-width="5" stroke-linecap="square" d="M43 47h13m16 0h13M43 71h13m16 0h13M64 39v12m0 16v12"/>
+    <rect x="53" y="48" width="22" height="22" rx="3" fill="#171717" stroke="#ffe6c0" stroke-width="3"/>
+    <circle cx="64" cy="59" r="6" fill="#5eb663"/>
+    <circle cx="64" cy="59" r="10" fill="none" stroke="#5eb663" stroke-opacity=".25" stroke-width="4"/>
+  </g>
+</svg>

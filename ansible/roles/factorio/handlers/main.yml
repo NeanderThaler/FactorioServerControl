@@ -1,0 +1,12 @@
+---
+- name: Reload systemd
+  ansible.builtin.systemd_service:
+    daemon_reload: true
+
+- name: Restart current factorio instance
+  ansible.builtin.systemd_service:
+    name: "{{ factorio_service_name }}"
+    state: restarted
+  when:
+    - not ansible_check_mode or factorio_service_unit.stat.exists
+    - not (factorio_upload_slot | default(false) | bool) or factorio_startable_save.stat.exists

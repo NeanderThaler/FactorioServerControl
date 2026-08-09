@@ -1,0 +1,31 @@
+#!/bin/sh
+# Refuse local deployment files and require encryption for other *.vault files.
+# Enable with: git config core.hooksPath githooks
+
+set -eu
+
+status=0
+
+for file in $(git diff --cached --name-only --diff-filter=ACM); do
+    case "$file" in
+        ansible/vault.yml | ansible/group_vars/instances_custom.yml)
+            echo "BLOCKED: $file is local-only and must never be committed."
+            git reset -q HEAD -- "$file"
+            status=1
+            ;;
+        *.vault)
+            if ! git show ":$file" | head -n 1 | grep -q '^\$ANSIBLE_VAULT'; then
+                echo "BLOCKED: $file is not encrypted."
+                echo "  Run: ansible-vault encrypt $file"
+                status=1
+            fi
+            ;;
+    esac
+done
+
+if [ "$status" -ne 0 ]; then
+    echo
+    echo "Commit aborted: repository secret policy was violated."
+fi
+
+exit "$status"

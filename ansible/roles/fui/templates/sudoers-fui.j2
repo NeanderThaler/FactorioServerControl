@@ -1,0 +1,11 @@
+# Managed by Ansible - local edits will be overwritten.
+# The web console may control only explicitly configured units and fixed helpers.
+{% for instance in fui_instances %}
+{{ fui_user }} ALL=(root) NOPASSWD: {{ fui_systemctl_path }} start factorio@{{ instance.id }}.service, {{ fui_systemctl_path }} stop factorio@{{ instance.id }}.service, {{ fui_systemctl_path }} restart factorio@{{ instance.id }}.service
+{% if not (instance.upload_slot | default(false)) %}
+{{ fui_user }} ALL=(root) NOPASSWD: {{ instance.config_dir }}/factorio-reset.sh ""
+{% endif %}
+{% if instance.mod_sync_enabled | default(true) %}
+{{ fui_user }} ALL=(root) NOPASSWD: {{ instance.config_dir }}/factorio-sync-mods.sh ""
+{% endif %}
+{% endfor %}

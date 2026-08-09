@@ -1,0 +1,9 @@
+---
+- name: Reload systemd for fui
+  ansible.builtin.systemd_service:
+    daemon_reload: true
+
+- name: Restart fui
+  ansible.builtin.systemd_service:
+    name: fui.service
+    state: restarted
