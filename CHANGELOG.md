@@ -2,7 +2,7 @@
 
 All notable changes to Factorio Server Control are documented here.
 
-## Unreleased
+## 1.2.0 - 2026-10-31
 
 ### Added
 
@@ -37,6 +37,8 @@ All notable changes to Factorio Server Control are documented here.
     previously the unpack step was skipped because the install already existed.
 - `test_uses_journal_time_for_shutdown` no longer depends on the local time
     zone.
+- The nginx location for engine upgrades redirected `GET /fui/api/engine` in a
+    loop, so the **Factorio** tab showed a network error.
 - `ansible-playbook --tags ...` skipped building the instance registry, which
     rendered an empty FUI instance list. The registry tasks are now tagged
     `always`.
