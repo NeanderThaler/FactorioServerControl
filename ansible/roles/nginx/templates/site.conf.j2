@@ -49,8 +49,9 @@ server {
     }
 
     # An engine upgrade downloads Factorio, stops every server, and updates
-    # all mods within one request.
-    location ^~ {{ fui_base_path }}/api/engine/ {
+    # all mods within one request. A regex location, because a prefix location
+    # ending in "/" makes nginx redirect GET .../api/engine into a loop.
+    location ~ ^{{ fui_base_path | regex_escape }}/api/engine/(upgrade|rollback)$ {
         proxy_pass http://127.0.0.1:{{ fui_port }};
         proxy_http_version 1.1;
         proxy_set_header Host $host;
