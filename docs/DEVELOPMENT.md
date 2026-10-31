@@ -152,7 +152,10 @@ when no players are connected.
 
 ### Mod Synchronization
 
-FUI reads `level.dat` or `level-init.dat`, resolves exact mod versions through
+FUI reads the save header from `level.dat`, or from the `level.dat0..N` chunks
+that large maps write instead (each chunk is a separate zlib stream). It falls
+back to `level-init.dat` only when neither exists, because that file records
+the mods the map was created with. FUI then resolves exact mod versions through
 the Factorio Mod Portal, verifies SHA-1 values, and transactionally replaces
 the selected instance's mods. Built-in mods are not downloaded. The previous
 set is restored if installation fails.
@@ -163,6 +166,9 @@ or an operator to own the instance mod directory. Do not combine both flows.
 Mod lists always name every built-in mod (`base`, `elevated-rails`, `quality`,
 `recycler`, `space-age`). Factorio enables unlisted built-in mods, and 2.1 added
 the Space Age-only `recycler`, so it is enabled only with Quality or Space Age.
+The privileged mod helpers, the Ansible mod list, and the Docker seed also add
+every mod bundled under `<factorio>/data/`, so a future built-in mod is never
+requested from the Mod Portal.
 
 ### Mod Updates
 

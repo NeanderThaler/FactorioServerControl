@@ -18,7 +18,8 @@ trap restart_if_needed EXIT
 result=$(/usr/bin/python3 {{ fui_install_dir }}/app/mods.py \
     --saves {{ (item.state_dir ~ '/saves') | quote }} \
     --mods {{ (item.state_dir ~ '/mods') | quote }} \
-    --server-settings {{ (item.config_dir ~ '/server-settings.json') | quote }})
+    --server-settings {{ (item.config_dir ~ '/server-settings.json') | quote }} \
+    --factorio-install-dir {{ factorio_install_dir | quote }})
 
 find {{ (item.state_dir ~ '/mods') | quote }} -maxdepth 1 -type f \
     \( -name '*.zip' -o -name mod-list.json \) \

@@ -82,17 +82,17 @@ with open(sys.argv[1], "w", encoding="utf-8") as output:
 PY
 fi
 
+# List every bundled mod disabled; Factorio enables unlisted ones.
 if [ ! -f "$mods/mod-list.json" ]; then
-    cat > "$mods/mod-list.json" <<'EOF'
-{
-  "mods": [
-    {"name": "base", "enabled": true},
-    {"name": "elevated-rails", "enabled": false},
-    {"name": "quality", "enabled": false},
-    {"name": "space-age", "enabled": false}
-  ]
-}
-EOF
+    {
+        printf '{\n  "mods": [\n    {"name": "base", "enabled": true}'
+        for info in /opt/factorio/data/*/info.json; do
+            name=$(basename "$(dirname "$info")")
+            case "$name" in base | core) continue ;; esac
+            printf ',\n    {"name": "%s", "enabled": false}' "$name"
+        done
+        printf '\n  ]\n}\n'
+    } > "$mods/mod-list.json"
 fi
 
 chmod 0600 "$config/server-settings.json" "$mods/mod-list.json"

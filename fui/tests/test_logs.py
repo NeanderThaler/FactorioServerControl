@@ -1,3 +1,4 @@
+from datetime import datetime
 from unittest import TestCase
 from unittest.mock import patch
 
@@ -24,9 +25,11 @@ class CleanLogTests(TestCase):
                 self.assertEqual(clean_log_line(raw), expected)
 
     def test_uses_journal_time_for_shutdown(self) -> None:
+        timestamp = 1_786_263_845_000_000
+        expected = datetime.fromtimestamp(timestamp / 1_000_000).strftime("%Y-%m-%d %H:%M:%S")
         self.assertEqual(
-            clean_log_line(" 638.177 Goodbye", 1_786_263_845_000_000),
-            "2026-08-09 10:24:05  Server stopped",
+            clean_log_line(" 638.177 Goodbye", timestamp),
+            f"{expected}  Server stopped",
         )
 
     def test_ignores_engine_noise_and_non_death_server_chat(self) -> None:

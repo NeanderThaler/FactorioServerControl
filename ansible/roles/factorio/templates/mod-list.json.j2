@@ -1,8 +1,13 @@
 {#- Factorio rewrites this file whenever it discovers a new mod, so it is
-    re-rendered on every run to keep the enabled set declarative. -#}
-{%- set mods = [{"name": "base", "enabled": true}] -%}
-{%- for mod in factorio_dlc_mods -%}
-{%-   set _ = mods.append({"name": mod, "enabled": true}) -%}
+    re-rendered on every run to keep the enabled set declarative. Every bundled
+    mod is listed because Factorio enables unlisted ones. -#}
+{%- set enabled = ['base'] + factorio_dlc_mods -%}
+{%- set bundled = factorio_bundled_mods.files | map(attribute='path') | map('dirname')
+                  | map('basename') | reject('equalto', 'core') | list -%}
+{%- set mods = [] -%}
+{%- for mod in (enabled + bundled) | unique | sort -%}
+{%-   set _ = mods.append({"name": mod, "enabled": mod in enabled
+          or (mod == 'recycler' and ('quality' in enabled or 'space-age' in enabled))}) -%}
 {%- endfor -%}
 {%- for archive in factorio_local_mods.files | map(attribute='path') | map('basename') | sort -%}
 {%-   set _ = mods.append({"name": archive | regex_replace('_[^_]+\.zip$', ''), "enabled": true}) -%}

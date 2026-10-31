@@ -10,6 +10,8 @@ factorio_install_dir: /opt/factorio
 factorio_instances_base_dir: /srv/factorio/instances
 factorio_scenario_src: "{{ playbook_dir }}/../scenarios"
 factorio_mods_src: "{{ playbook_dir }}/../mods"
+# Bundled mods to enable. Bundled mods not listed here are disabled, except
+# Factorio 2.1's recycler, which follows quality and space-age.
 factorio_dlc_mods:
   - elevated-rails
   - quality

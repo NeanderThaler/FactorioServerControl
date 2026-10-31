@@ -20,8 +20,9 @@ import urllib.parse
 import urllib.error
 import urllib.request
 import zipfile
+import zlib
 from pathlib import Path
-from typing import BinaryIO, NamedTuple
+from typing import BinaryIO, NamedTuple, cast
 
 
 class ModVersion(NamedTuple):
@@ -45,6 +46,7 @@ class ModSyncError(RuntimeError):
 _BUILTIN_MODS = {"base", "elevated-rails", "quality", "recycler", "space-age"}
 _MAX_STRING_BYTES = 1_048_576
 _MAX_MODS = 10_000
+_LEVEL_CHUNK = re.compile(r"level\.dat(\d+)")
 _MOD_BACKUPS_KEPT = 5
 _USER_AGENT = "Factorio-FUI-ModSync/1"
 _GAME_VERSION = re.compile(r"^(\d{1,4})\.(\d{1,4})\.(\d{1,5})$")
@@ -55,6 +57,14 @@ _DEPENDENCY = re.compile(
     r"^\s*(?P<prefix>!|\?|\(\?\)|~|\+)?\s*(?P<name>[^<>=]+?)\s*"
     r"(?:(?:<=|>=|<|>|=)\s*\S+)?\s*$"
 )
+
+
+def discover_builtin_mods(install_dir: Path) -> set[str]:
+    """Names of the mods bundled under install_dir/data, excluding core."""
+    try:
+        return {path.parent.name for path in (install_dir / "data").glob("*/info.json")} - {"core"}
+    except OSError:
+        return set()
 
 
 def _apply_builtin_dependencies(builtins: dict[str, bool]) -> None:
@@ -99,63 +109,114 @@ def _read_version48(stream: BinaryIO, game: tuple[int, ...]) -> ModVersion:
     )
 
 
+class _ChunkedLevel:
+    """Read level.dat0..N, each an independent zlib stream, as one stream.
+
+    Chunks are inflated lazily, so parsing the header touches only chunk 0.
+    """
+
+    def __init__(self, archive: zipfile.ZipFile, chunks: list[zipfile.ZipInfo]) -> None:
+        self._archive = archive
+        self._chunks = iter(chunks)
+        self._inflater: zlib._Decompress | None = None
+        self._pending = b""
+        self._buffer = b""
+
+    def read(self, size: int) -> bytes:
+        while len(self._buffer) < size:
+            if self._inflater is None or self._inflater.eof:
+                chunk = next(self._chunks, None)
+                if chunk is None:
+                    break
+                self._inflater = zlib.decompressobj()
+                self._pending = self._archive.read(chunk)
+            try:
+                data = self._inflater.decompress(self._pending, size - len(self._buffer))
+            except zlib.error as exc:
+                raise ModSyncError("Save contains a corrupt level.dat chunk") from exc
+            self._pending = self._inflater.unconsumed_tail
+            if not data and not self._inflater.eof:
+                raise ModSyncError("Save contains a truncated level.dat chunk")
+            self._buffer += data
+        value, self._buffer = self._buffer[:size], self._buffer[size:]
+        return value
+
+
 def read_save_mods(save_path: Path) -> list[SaveMod]:
     try:
         archive = zipfile.ZipFile(save_path)
     except (OSError, zipfile.BadZipFile) as exc:
         raise ModSyncError(f"Cannot open save {save_path.name}: {exc}") from exc
 
+    # level-init.dat holds the version and mods the map was created with, so
+    # it is only a fallback when no current level data exists. Large maps
+    # replace level.dat with level.dat0..N chunks.
     with archive:
-        candidates = [
-            entry for entry in archive.infolist()
-            if Path(entry.filename).name in {"level.dat", "level-init.dat"}
-        ]
-        if not candidates:
-            raise ModSyncError("Save contains neither level.dat nor level-init.dat")
+        entries = {Path(entry.filename).name: entry for entry in archive.infolist()}
+        if "level.dat" in entries:
+            with archive.open(entries["level.dat"]) as stream:
+                return _parse_save_header(stream)
 
-        save_header = min(
-            candidates,
-            key=lambda entry: Path(entry.filename).name != "level.dat",
+        chunks = sorted(
+            (
+                (int(match.group(1)), entry)
+                for name, entry in entries.items()
+                if (match := _LEVEL_CHUNK.fullmatch(name))
+            ),
+            key=lambda item: item[0],
         )
-        with archive.open(save_header) as stream:
-            game = struct.unpack("<4H", _read_exact(stream, 8))
-            if game >= (0, 17, 0, 0):
-                _read_exact(stream, 1)
+        if chunks:
+            if [index for index, _ in chunks] != list(range(len(chunks))):
+                raise ModSyncError("Save is missing level.dat chunks")
+            return _parse_save_header(
+                cast(BinaryIO, _ChunkedLevel(archive, [entry for _, entry in chunks]))
+            )
 
-            _read_string(stream, game, False)  # campaign
-            _read_string(stream, game, False)  # level name
-            _read_string(stream, game, False)  # base mod
-            _read_exact(stream, 3)  # difficulty, finished, player won
-            _read_string(stream, game, False)  # next level
-            if game >= (0, 12, 0, 0):
-                _read_exact(stream, 2)  # can continue, finished but continuing
-            _read_exact(stream, 1)  # saving replay
-            if game >= (0, 16, 0, 0):
-                _read_exact(stream, 1)  # allow non-admin debug options
-            _read_version48(stream, game)  # loaded-from version
-            _read_exact(stream, 3)  # loaded-from build, allowed commands
+        if "level-init.dat" in entries:
+            with archive.open(entries["level-init.dat"]) as stream:
+                return _parse_save_header(stream)
+        raise ModSyncError("Save contains no level.dat, level.dat0 or level-init.dat")
 
-            if game < (0, 13, 0, 42):
-                raise ModSyncError("Factorio saves older than 0.13 are not supported")
 
-            if game >= (2, 0, 0, 0):
-                _read_exact(stream, 6)  # Factorio 2.0 header extension
+def _parse_save_header(stream: BinaryIO) -> list[SaveMod]:
+    game = struct.unpack("<4H", _read_exact(stream, 8))
+    if game >= (0, 17, 0, 0):
+        _read_exact(stream, 1)
 
-            if game >= (0, 16, 0, 0):
-                count = _read_optimized_uint(stream, game, 4)
-            else:
-                count = struct.unpack("<I", _read_exact(stream, 4))[0]
-            if count > _MAX_MODS:
-                raise ModSyncError(f"Save header declares too many mods: {count}")
+    _read_string(stream, game, False)  # campaign
+    _read_string(stream, game, False)  # level name
+    _read_string(stream, game, False)  # base mod
+    _read_exact(stream, 3)  # difficulty, finished, player won
+    _read_string(stream, game, False)  # next level
+    if game >= (0, 12, 0, 0):
+        _read_exact(stream, 2)  # can continue, finished but continuing
+    _read_exact(stream, 1)  # saving replay
+    if game >= (0, 16, 0, 0):
+        _read_exact(stream, 1)  # allow non-admin debug options
+    _read_version48(stream, game)  # loaded-from version
+    _read_exact(stream, 3)  # loaded-from build, allowed commands
 
-            mods: list[SaveMod] = []
-            for _ in range(count):
-                name = _read_string(stream, game, True)
-                version = _read_version48(stream, game)
-                if game > (0, 15, 0, 91):
-                    _read_exact(stream, 4)  # mod CRC
-                mods.append(SaveMod(name, version))
-            return mods
+    if game < (0, 13, 0, 42):
+        raise ModSyncError("Factorio saves older than 0.13 are not supported")
+
+    if game >= (2, 0, 0, 0):
+        _read_exact(stream, 6)  # Factorio 2.0 header extension
+
+    if game >= (0, 16, 0, 0):
+        count = _read_optimized_uint(stream, game, 4)
+    else:
+        count = struct.unpack("<I", _read_exact(stream, 4))[0]
+    if count > _MAX_MODS:
+        raise ModSyncError(f"Save header declares too many mods: {count}")
+
+    mods: list[SaveMod] = []
+    for _ in range(count):
+        name = _read_string(stream, game, True)
+        version = _read_version48(stream, game)
+        if game > (0, 15, 0, 91):
+            _read_exact(stream, 4)  # mod CRC
+        mods.append(SaveMod(name, version))
+    return mods
 
 
 def _portal_metadata(name: str, timeout: int) -> dict[str, object]:
@@ -661,6 +722,8 @@ def main() -> None:
     parser.add_argument("--update", choices=("all", "incompatible"))
     parser.add_argument("--factorio-install-dir", type=Path, default=Path("/opt/factorio"))
     args = parser.parse_args()
+    # A bundled mod unknown to this release must never be fetched from the portal.
+    _BUILTIN_MODS.update(discover_builtin_mods(args.factorio_install_dir))
     try:
         if args.inspect_save:
             print(

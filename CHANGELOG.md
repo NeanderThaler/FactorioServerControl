@@ -27,6 +27,16 @@ All notable changes to Factorio Server Control are documented here.
 
 ### Fixed
 
+- Mod sync read the stale `level-init.dat` of saves whose level data is split
+    into `level.dat0..N` chunks, installing the mods the map was created with
+    instead of the current ones. Chunked level data is now read first.
+- Built-in mods are discovered from the Factorio `data/` directory, so a newly
+    bundled mod such as `recycler` is no longer requested from the Mod Portal,
+    and the Ansible and Docker mod lists name every bundled mod explicitly.
+- A pinned `factorio_version` change now installs and activates that version;
+    previously the unpack step was skipped because the install already existed.
+- `test_uses_journal_time_for_shutdown` no longer depends on the local time
+    zone.
 - `ansible-playbook --tags ...` skipped building the instance registry, which
     rendered an empty FUI instance list. The registry tasks are now tagged
     `always`.
