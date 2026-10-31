@@ -79,11 +79,20 @@ class SaveModParserTests(TestCase):
                     {"name": "base", "enabled": True},
                     {"name": "elevated-rails", "enabled": False},
                     {"name": "quality", "enabled": False},
+                    {"name": "recycler", "enabled": False},
                     {"name": "space-age", "enabled": False},
                     {"name": "nullius", "enabled": True},
                 ]
             },
         )
+
+    def test_mod_list_enables_recycler_with_quality(self) -> None:
+        result = _desired_mod_list(
+            [SaveMod("quality", ModVersion(2, 0, 77))], Path(".")
+        )
+        enabled = {entry["name"]: entry["enabled"] for entry in result["mods"]}
+        self.assertTrue(enabled["recycler"])
+        self.assertFalse(enabled["space-age"])
 
     def test_reads_configured_mods_and_archive_versions(self) -> None:
         with tempfile.TemporaryDirectory() as temp:

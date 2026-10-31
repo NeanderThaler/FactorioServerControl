@@ -1,0 +1,32 @@
+#!/bin/sh
+# Managed by Ansible - local edits will be overwritten.
+# Updates every enabled mod of this instance to the newest portal release for
+# the installed Factorio version. Run as root by the web console through a
+# single sudoers entry, so it takes no arguments.
+set -eu
+
+was_running=false
+if {{ fui_systemctl_path }} is-active --quiet factorio@{{ item.id }}.service; then
+    was_running=true
+    {{ fui_systemctl_path }} stop factorio@{{ item.id }}.service
+fi
+
+restart_if_needed() {
+    if [ "$was_running" = true ]; then
+        {{ fui_systemctl_path }} start factorio@{{ item.id }}.service
+    fi
+}
+trap restart_if_needed EXIT
+
+result=$(/usr/bin/python3 {{ fui_install_dir }}/app/mods.py \
+    --update all \
+    --factorio-install-dir {{ factorio_install_dir | quote }} \
+    --mods {{ (item.state_dir ~ '/mods') | quote }} \
+    --server-settings {{ (item.config_dir ~ '/server-settings.json') | quote }})
+
+find {{ (item.state_dir ~ '/mods') | quote }} -maxdepth 1 -type f \
+    \( -name '*.zip' -o -name mod-list.json \) \
+    -exec chown {{ factorio_user | quote }}:{{ factorio_group | quote }} {} + \
+    -exec chmod 0640 {} +
+
+printf '%s\n' "$result"

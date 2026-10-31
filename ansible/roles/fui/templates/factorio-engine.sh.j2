@@ -1,0 +1,18 @@
+#!/bin/sh
+# Managed by Ansible - local edits will be overwritten.
+# Upgrades the shared Factorio headless engine to the latest stable release, or
+# rolls it back to the previous version. Run as root by the web console; sudoers
+# permits exactly the arguments "upgrade" and "rollback".
+set -eu
+
+case "${1:-}" in
+    upgrade|rollback) ;;
+    *) echo "usage: $0 upgrade|rollback" >&2; exit 2 ;;
+esac
+
+exec /usr/bin/python3 {{ fui_install_dir }}/app/engine.py "$1" \
+    --instances {{ fui_instances_file | quote }} \
+    --install-dir {{ factorio_install_dir | quote }} \
+    --cache-dir {{ fui_engine_cache_dir | quote }} \
+    --systemctl {{ fui_systemctl_path | quote }} \
+    --owner {{ (factorio_user ~ ':' ~ factorio_group) | quote }}

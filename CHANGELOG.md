@@ -2,6 +2,35 @@
 
 All notable changes to Factorio Server Control are documented here.
 
+## Unreleased
+
+### Added
+
+- FUI **Factorio** tab: upgrade the shared headless engine to the latest stable
+    release or roll back to the previous version. Downloads are verified against
+    factorio.com SHA-256 checksums, each version lives in its own directory, and
+    `/opt/factorio` is switched atomically through a symlink. Mods that would no
+    longer load are updated, and only previously running servers are restarted.
+- FUI **Update mods**: install the newest portal release of every enabled mod
+    for the installed Factorio version, add missing required dependencies, and
+    keep replaced archives in `state/mods-backup/`.
+
+### Changed
+
+- The Ansible role installs Factorio into versioned directories. With
+    `factorio_version: stable` or `latest` it only installs when nothing is
+    installed, so it never undoes an upgrade or rollback made in FUI; a pinned
+    version is switched to exactly. Downloads are checksum-verified.
+- Mod lists always name every built-in mod. Factorio 2.1's new `recycler` mod
+    is enabled only with Quality or Space Age, because an unlisted built-in mod
+    is enabled by default and would make a vanilla server require Space Age.
+
+### Fixed
+
+- `ansible-playbook --tags ...` skipped building the instance registry, which
+    rendered an empty FUI instance list. The registry tasks are now tagged
+    `always`.
+
 ## 1.1.0 - 2026-08-09
 
 ### Added

@@ -11,3 +11,10 @@ fui_reset_script: "{{ factorio_instances[0].config_dir }}/factorio-reset.sh"
 fui_reset_timeout: 180
 fui_mod_sync_timeout: 900
 fui_instances_file: "{{ fui_config_dir }}/instances.json"
+# Lets the console upgrade the shared Factorio engine to the latest stable
+# release and roll it back. The download, all mod updates, and stopping every
+# server happen in one request, hence the long timeout.
+fui_engine_management_enabled: true
+fui_engine_script: "{{ fui_config_dir }}/factorio-engine.sh"
+fui_engine_cache_dir: /var/cache/factorio
+fui_engine_timeout: 1800

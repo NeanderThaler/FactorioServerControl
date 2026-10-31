@@ -1,4 +1,5 @@
-"""Synchronize exact mod versions recorded in a Factorio save.
+"""Synchronize exact mod versions recorded in a Factorio save, or update mods
+to the newest releases for the installed Factorio version.
 
 The save-header decoding is adapted from OpenFactorioServerManager's
 src/factorio/save.go and src/factorio/version.go; see ../THIRD_PARTY_NOTICES.md.
@@ -6,9 +7,12 @@ src/factorio/save.go and src/factorio/version.go; see ../THIRD_PARTY_NOTICES.md.
 
 from __future__ import annotations
 
+import datetime as dt
 import hashlib
 import json
 import os
+import re
+import shutil
 import struct
 import subprocess
 import tempfile
@@ -38,9 +42,26 @@ class ModSyncError(RuntimeError):
     pass
 
 
-_BUILTIN_MODS = {"base", "elevated-rails", "quality", "space-age"}
+_BUILTIN_MODS = {"base", "elevated-rails", "quality", "recycler", "space-age"}
 _MAX_STRING_BYTES = 1_048_576
 _MAX_MODS = 10_000
+_MOD_BACKUPS_KEPT = 5
+_USER_AGENT = "Factorio-FUI-ModSync/1"
+_GAME_VERSION = re.compile(r"^(\d{1,4})\.(\d{1,4})\.(\d{1,5})$")
+_MOD_VERSION = re.compile(r"^\d{1,5}\.\d{1,5}\.\d{1,5}$")
+# Dependency prefixes: "!" incompatible, "?" and "(?)" optional, "~" required
+# without load-order effect, "+" required. Everything else is required.
+_DEPENDENCY = re.compile(
+    r"^\s*(?P<prefix>!|\?|\(\?\)|~|\+)?\s*(?P<name>[^<>=]+?)\s*"
+    r"(?:(?:<=|>=|<|>|=)\s*\S+)?\s*$"
+)
+
+
+def _apply_builtin_dependencies(builtins: dict[str, bool]) -> None:
+    # Factorio 2.1 split the recycler out of quality, and an unlisted built-in
+    # mod is enabled by default. It must therefore be listed explicitly, and
+    # it is required exactly when quality or Space Age is enabled.
+    builtins["recycler"] = bool(builtins.get("quality") or builtins.get("space-age"))
 
 
 def _read_exact(stream: BinaryIO, size: int) -> bytes:
@@ -137,18 +158,23 @@ def read_save_mods(save_path: Path) -> list[SaveMod]:
             return mods
 
 
-def _portal_release(mod: SaveMod, timeout: int) -> dict[str, str]:
-    name = urllib.parse.quote(mod.name, safe="")
+def _portal_metadata(name: str, timeout: int) -> dict[str, object]:
     request = urllib.request.Request(
-        f"https://mods.factorio.com/api/mods/{name}/full",
-        headers={"User-Agent": "Factorio-FUI-ModSync/1"},
+        f"https://mods.factorio.com/api/mods/{urllib.parse.quote(name, safe='')}/full",
+        headers={"User-Agent": _USER_AGENT},
     )
     try:
         with urllib.request.urlopen(request, timeout=timeout) as response:
             metadata = json.load(response)
     except (OSError, ValueError) as exc:
-        raise ModSyncError(f"Could not retrieve metadata for {mod.name}: {exc}") from exc
+        raise ModSyncError(f"Could not retrieve metadata for {name}: {exc}") from exc
+    if not isinstance(metadata, dict):
+        raise ModSyncError(f"Portal returned invalid metadata for {name}")
+    return metadata
 
+
+def _portal_release(mod: SaveMod, timeout: int) -> dict[str, str]:
+    metadata = _portal_metadata(mod.name, timeout)
     for release in metadata.get("releases", []):
         if release.get("version") == str(mod.version):
             return release
@@ -174,7 +200,7 @@ def _stage_release(
     query = urllib.parse.urlencode({"username": username, "token": token})
     request = urllib.request.Request(
         f"https://mods.factorio.com{download_path}?{query}",
-        headers={"User-Agent": "Factorio-FUI-ModSync/1"},
+        headers={"User-Agent": _USER_AGENT},
     )
     target = stage / filename
     digest = hashlib.sha1()
@@ -201,6 +227,7 @@ def _desired_mod_list(required: list[SaveMod], _mods_dir: Path) -> dict[str, obj
         name: name == "base" or name in enabled
         for name in _BUILTIN_MODS
     }
+    _apply_builtin_dependencies(builtins)
 
     entries = [
         {"name": name, "enabled": is_enabled}
@@ -214,18 +241,23 @@ def _desired_mod_list(required: list[SaveMod], _mods_dir: Path) -> dict[str, obj
     return {"mods": entries}
 
 
-def read_mod_inventory(mods_dir: Path) -> list[dict[str, object]]:
-    """Read configured mods and installed versions without changing state."""
+class InstalledMod(NamedTuple):
+    version: str
+    factorio_version: str
+    dependencies: tuple[str, ...]
+    paths: tuple[Path, ...]
+
+
+def _version_key(version: str) -> tuple[int, ...]:
     try:
-        configured = json.loads((mods_dir / "mod-list.json").read_text(encoding="utf-8"))
-    except (OSError, ValueError) as exc:
-        raise ModSyncError(f"Cannot read mod list: {exc}") from exc
+        return tuple(int(part) for part in version.split("."))
+    except ValueError:
+        return ()
 
-    entries = configured.get("mods") if isinstance(configured, dict) else None
-    if not isinstance(entries, list) or len(entries) > _MAX_MODS:
-        raise ModSyncError("Mod list has an invalid mods array")
 
-    versions: dict[str, str] = {}
+def _installed_archives(mods_dir: Path) -> dict[str, InstalledMod]:
+    """Map each mod name to its newest archive; all archive paths are kept."""
+    found: dict[str, list[tuple[str, str, tuple[str, ...], Path]]] = {}
     for archive_path in mods_dir.glob("*.zip"):
         try:
             with zipfile.ZipFile(archive_path) as archive:
@@ -239,11 +271,50 @@ def read_mod_inventory(mods_dir: Path) -> list[dict[str, object]]:
                 metadata = json.loads(archive.read(min(candidates, key=lambda item: len(Path(item.filename).parts))))
                 name = metadata.get("name")
                 version = metadata.get("version")
+                game = metadata.get("factorio_version", "")
+                dependencies = metadata.get("dependencies", [])
+                if not isinstance(dependencies, list):
+                    dependencies = []
                 if isinstance(name, str) and isinstance(version, str):
-                    versions[name] = version
+                    found.setdefault(name, []).append(
+                        (
+                            version,
+                            game if isinstance(game, str) else "",
+                            tuple(str(item) for item in dependencies),
+                            archive_path,
+                        )
+                    )
         except (OSError, ValueError, zipfile.BadZipFile, KeyError, AttributeError):
             continue
 
+    result: dict[str, InstalledMod] = {}
+    for name, archives in found.items():
+        newest = max(archives, key=lambda item: _version_key(item[0]))
+        result[name] = InstalledMod(
+            newest[0],
+            newest[1],
+            newest[2],
+            tuple(sorted(item[3] for item in archives)),
+        )
+    return result
+
+
+def _read_mod_list(mods_dir: Path) -> list[dict[str, object]]:
+    try:
+        configured = json.loads((mods_dir / "mod-list.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError) as exc:
+        raise ModSyncError(f"Cannot read mod list: {exc}") from exc
+
+    entries = configured.get("mods") if isinstance(configured, dict) else None
+    if not isinstance(entries, list) or len(entries) > _MAX_MODS:
+        raise ModSyncError("Mod list has an invalid mods array")
+    return entries
+
+
+def read_mod_inventory(mods_dir: Path) -> list[dict[str, object]]:
+    """Read configured mods and installed versions without changing state."""
+    entries = _read_mod_list(mods_dir)
+    versions = {name: mod.version for name, mod in _installed_archives(mods_dir).items()}
     result: list[dict[str, object]] = []
     seen: set[str] = set()
     for entry in entries:
@@ -332,10 +403,238 @@ def synchronize_mods(
     }
 
 
+def read_engine_version(install_dir: Path) -> str | None:
+    """Return the Factorio version installed at install_dir, or None."""
+    try:
+        metadata = json.loads(
+            (install_dir / "data" / "base" / "info.json").read_text(encoding="utf-8")
+        )
+    except (OSError, ValueError):
+        return None
+    version = metadata.get("version") if isinstance(metadata, dict) else None
+    return version if isinstance(version, str) and _GAME_VERSION.fullmatch(version) else None
+
+
+def game_series(factorio_version: str) -> str:
+    """Map "2.1.23" to "2.1", the value mods declare as factorio_version."""
+    match = _GAME_VERSION.fullmatch(factorio_version)
+    if not match:
+        raise ModSyncError(f"Invalid Factorio version: {factorio_version!r}")
+    return f"{int(match.group(1))}.{int(match.group(2))}"
+
+
+def _required_dependencies(dependencies: tuple[str, ...] | list[str]) -> list[str]:
+    names: list[str] = []
+    for dependency in dependencies:
+        match = _DEPENDENCY.match(str(dependency))
+        if not match or match.group("prefix") in {"!", "?", "(?)"}:
+            continue
+        name = match.group("name").strip()
+        if name and name not in _BUILTIN_MODS:
+            names.append(name)
+    return names
+
+
+def _newest_release(metadata: dict[str, object], series: str) -> dict[str, object] | None:
+    releases = metadata.get("releases", [])
+    candidates = [
+        release for release in (releases if isinstance(releases, list) else [])
+        if isinstance(release, dict)
+        and isinstance(release.get("info_json"), dict)
+        and release["info_json"].get("factorio_version") == series
+        and _MOD_VERSION.fullmatch(str(release.get("version", "")))
+    ]
+    if not candidates:
+        return None
+    return max(candidates, key=lambda release: _version_key(str(release["version"])))
+
+
+def _complete_builtin_entries(entries: list[dict[str, object]]) -> list[dict[str, object]]:
+    """List every built-in mod explicitly so none is enabled implicitly."""
+    builtins = {
+        str(entry["name"]): bool(entry.get("enabled", False))
+        for entry in entries
+        if entry.get("name") in _BUILTIN_MODS
+    }
+    for name in _BUILTIN_MODS:
+        builtins.setdefault(name, name == "base")
+    _apply_builtin_dependencies(builtins)
+    others = [entry for entry in entries if entry.get("name") not in _BUILTIN_MODS]
+    return [
+        {"name": name, "enabled": builtins[name]} for name in sorted(builtins)
+    ] + others
+
+
+def ensure_builtin_entries(mods_dir: Path) -> bool:
+    """Rewrite mod-list.json when a built-in mod is unlisted; True if changed."""
+    path = mods_dir / "mod-list.json"
+    if not path.exists():
+        return False
+    entries = [entry for entry in _read_mod_list(mods_dir) if isinstance(entry, dict)]
+    completed = _complete_builtin_entries(entries)
+    current = {str(entry.get("name")): bool(entry.get("enabled", False)) for entry in entries}
+    if all(current.get(str(entry["name"])) == entry["enabled"] for entry in completed):
+        return False
+    path.write_text(json.dumps({"mods": completed}, indent=2) + "\n", encoding="utf-8")
+    return True
+
+
+def _prune_backups(backup_root: Path) -> None:
+    backups = sorted(path for path in backup_root.iterdir() if path.is_dir())
+    for stale in backups[:-_MOD_BACKUPS_KEPT]:
+        shutil.rmtree(stale, ignore_errors=True)
+
+
+def update_mods(
+    mods_dir: Path,
+    server_settings_path: Path,
+    factorio_version: str,
+    only_incompatible: bool = False,
+    timeout: int = 30,
+) -> dict[str, object]:
+    """Install the newest portal release of every enabled mod for factorio_version.
+
+    With only_incompatible, mods already built for the same Factorio series
+    stay untouched; only those that would not load are replaced. Missing
+    required dependencies are added and enabled. Replaced archives are moved
+    to a sibling mods-backup directory, never inside the mods directory, where
+    Factorio would try to load them.
+    """
+    series = game_series(factorio_version)
+    entries = [entry for entry in _read_mod_list(mods_dir) if isinstance(entry, dict)]
+    installed = _installed_archives(mods_dir)
+    queue = [
+        str(entry["name"]) for entry in entries
+        if entry.get("enabled") and isinstance(entry.get("name"), str)
+        and entry["name"] not in _BUILTIN_MODS
+    ]
+
+    plan: dict[str, dict[str, object]] = {}
+    unchanged: list[dict[str, str]] = []
+    unavailable: list[str] = []
+    required: list[str] = []
+    seen: set[str] = set()
+    while queue:
+        name = queue.pop(0)
+        if name in seen or name in _BUILTIN_MODS:
+            continue
+        seen.add(name)
+        required.append(name)
+        current = installed.get(name)
+        if only_incompatible and current and current.factorio_version == series:
+            unchanged.append({"name": name, "version": current.version})
+            queue.extend(_required_dependencies(current.dependencies))
+            continue
+        release = _newest_release(_portal_metadata(name, timeout), series)
+        if release is None:
+            unavailable.append(name)
+            continue
+        info = release["info_json"]
+        dependencies = info.get("dependencies", []) if isinstance(info, dict) else []
+        queue.extend(_required_dependencies(dependencies if isinstance(dependencies, list) else []))
+        if current and current.version == release["version"]:
+            unchanged.append({"name": name, "version": current.version})
+        else:
+            plan[name] = release
+
+    if unavailable:
+        raise ModSyncError(
+            f"No Factorio {series} release on the mod portal for: "
+            + ", ".join(sorted(unavailable))
+        )
+
+    configured = {str(entry.get("name")) for entry in entries}
+    new_entries = []
+    for entry in entries:
+        if entry.get("name") in seen and not entry.get("enabled"):
+            entry = {**entry, "enabled": True}
+        new_entries.append(entry)
+    added = [name for name in required if name not in configured]
+    new_entries.extend({"name": name, "enabled": True} for name in added)
+    new_entries = _complete_builtin_entries(new_entries)
+
+    updated = [
+        {
+            "name": name,
+            "from": installed[name].version if name in installed else None,
+            "to": str(release["version"]),
+        }
+        for name, release in plan.items()
+    ]
+    result: dict[str, object] = {
+        "factorio_version": factorio_version,
+        "updated": updated,
+        "added": added,
+        "unchanged": unchanged,
+        "backup": None,
+    }
+    old_list = json.dumps({"mods": entries}, indent=2) + "\n"
+    new_list = json.dumps({"mods": new_entries}, indent=2) + "\n"
+    if not plan and new_list == old_list:
+        return result
+
+    username = token = ""
+    if plan:
+        try:
+            server_settings = json.loads(server_settings_path.read_text(encoding="utf-8"))
+        except (OSError, ValueError) as exc:
+            raise ModSyncError(f"Cannot read server settings: {exc}") from exc
+        username = server_settings.get("username", "")
+        token = server_settings.get("token", "")
+        if not username or not token:
+            raise ModSyncError("Factorio username and token are required to download mods")
+
+    backup_root = mods_dir.parent / "mods-backup"
+    backup = backup_root / dt.datetime.now(dt.timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    with tempfile.TemporaryDirectory(prefix=".mod-update-", dir=mods_dir) as temp:
+        stage = Path(temp)
+        for name, release in plan.items():
+            version = ModVersion(*(int(part) for part in str(release["version"]).split(".")))
+            _stage_release(SaveMod(name, version), release, stage, username, token, timeout)
+
+        backup.mkdir(parents=True, exist_ok=True)
+        list_path = mods_dir / "mod-list.json"
+        shutil.copy2(list_path, backup / "mod-list.json")
+        moved: list[Path] = []
+        installed_now: list[Path] = []
+        try:
+            for name in plan:
+                for archive in installed[name].paths if name in installed else ():
+                    os.replace(archive, backup / archive.name)
+                    moved.append(archive)
+            for staged in list(stage.iterdir()):
+                target = mods_dir / staged.name
+                os.replace(staged, target)
+                installed_now.append(target)
+            list_path.write_text(new_list, encoding="utf-8")
+        except OSError as exc:
+            for target in installed_now:
+                target.unlink(missing_ok=True)
+            for archive in moved:
+                os.replace(backup / archive.name, archive)
+            shutil.copy2(backup / "mod-list.json", list_path)
+            raise ModSyncError(f"Could not install updated mods: {exc}") from exc
+
+    _prune_backups(backup_root)
+    result["backup"] = str(backup)
+    return result
+
+
 def run_privileged_sync(script_path: str, sudo_path: str, timeout: int) -> dict[str, object]:
+    return run_privileged_helper(script_path, sudo_path, timeout, "Mod synchronization")
+
+
+def run_privileged_helper(
+    script_path: str,
+    sudo_path: str,
+    timeout: int,
+    label: str,
+    *arguments: str,
+) -> dict[str, object]:
+    """Run a fixed root-owned helper through sudo and parse its JSON result."""
     try:
         result = subprocess.run(
-            [sudo_path, "--non-interactive", script_path],
+            [sudo_path, "--non-interactive", script_path, *arguments],
             check=True,
             capture_output=True,
             text=True,
@@ -343,12 +642,12 @@ def run_privileged_sync(script_path: str, sudo_path: str, timeout: int) -> dict[
         )
         return json.loads(result.stdout)
     except subprocess.TimeoutExpired as exc:
-        raise ModSyncError(f"Mod synchronization timed out after {timeout}s") from exc
+        raise ModSyncError(f"{label} timed out after {timeout}s") from exc
     except subprocess.CalledProcessError as exc:
-        message = exc.stderr.strip() or exc.stdout.strip() or "Mod synchronization failed"
+        message = exc.stderr.strip() or exc.stdout.strip() or f"{label} failed"
         raise ModSyncError(message) from exc
     except ValueError as exc:
-        raise ModSyncError("Mod synchronization returned an invalid response") from exc
+        raise ModSyncError(f"{label} returned an invalid response") from exc
 
 
 def main() -> None:
@@ -359,6 +658,8 @@ def main() -> None:
     parser.add_argument("--saves", type=Path)
     parser.add_argument("--mods", type=Path)
     parser.add_argument("--server-settings", type=Path)
+    parser.add_argument("--update", choices=("all", "incompatible"))
+    parser.add_argument("--factorio-install-dir", type=Path, default=Path("/opt/factorio"))
     args = parser.parse_args()
     try:
         if args.inspect_save:
@@ -371,11 +672,28 @@ def main() -> None:
                 )
             )
             return
+        if args.update:
+            if not args.mods or not args.server_settings:
+                parser.error("--mods and --server-settings are required for --update")
+            version = read_engine_version(args.factorio_install_dir)
+            if not version:
+                raise ModSyncError(f"No Factorio installation found at {args.factorio_install_dir}")
+            print(
+                json.dumps(
+                    update_mods(
+                        args.mods,
+                        args.server_settings,
+                        version,
+                        only_incompatible=args.update == "incompatible",
+                    )
+                )
+            )
+            return
         if not args.saves or not args.mods or not args.server_settings:
             parser.error("--saves, --mods and --server-settings are required for sync")
         print(json.dumps(synchronize_mods(args.saves, args.mods, args.server_settings)))
     except ModSyncError as exc:
-        parser.exit(1, f"mod sync failed: {exc}\n")
+        parser.exit(1, f"mod {'update' if args.update else 'sync'} failed: {exc}\n")
 
 
 if __name__ == "__main__":

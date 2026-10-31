@@ -28,25 +28,134 @@
     group: "{{ factorio_group }}"
     mode: "0750"
 
-# Binaries stay root-owned so a compromised game process cannot rewrite them.
-- name: Download the headless tarball
-  ansible.builtin.get_url:
-    url: "https://factorio.com/get-download/{{ factorio_version }}/headless/linux64"
-    dest: "/var/cache/factorio-headless-{{ factorio_version }}.tar.xz"
-    owner: root
-    group: root
-    mode: "0644"
-  register: factorio_download
+# Each version lives in <install_dir>-<version> and install_dir is a symlink to
+# the active one, the layout the web console's engine upgrade also uses. With a
+# channel ("stable"/"latest") Ansible only installs when nothing is installed,
+# so it never undoes an upgrade or rollback made through the console. A pinned
+# version is switched to exactly. Binaries stay root-owned so a compromised
+# game process cannot rewrite them.
+- name: Inspect the Factorio install path
+  ansible.builtin.stat:
+    path: "{{ factorio_install_dir }}"
+    follow: false
+  register: factorio_install_path
 
-- name: Unpack Factorio into /opt
-  ansible.builtin.unarchive:
-    src: "{{ factorio_download.dest }}"
-    dest: /opt
-    remote_src: true
-    owner: root
-    group: root
-    creates: "{{ factorio_install_dir }}/bin/x64/factorio"
-  register: factorio_unpack
+- name: Read the installed Factorio version
+  ansible.builtin.slurp:
+    src: "{{ factorio_install_dir }}/data/base/info.json"
+  register: factorio_installed_info
+  failed_when: false
+
+- name: Record the installed Factorio version
+  ansible.builtin.set_fact:
+    factorio_installed_version: >-
+      {{ (factorio_installed_info.content | b64decode | from_json).version
+         if factorio_installed_info.content is defined else '' }}
+
+- name: Look up the current Factorio release
+  ansible.builtin.uri:
+    url: https://factorio.com/api/latest-releases
+    return_content: true
+  register: factorio_latest_releases
+  check_mode: false
+  when:
+    - factorio_version in ['stable', 'latest']
+    - factorio_installed_version | length == 0
+
+- name: Choose the Factorio version to run
+  ansible.builtin.set_fact:
+    factorio_target_version: >-
+      {{ factorio_version if factorio_version not in ['stable', 'latest']
+         else factorio_installed_version if factorio_installed_version | length > 0
+         else factorio_latest_releases.json[
+           'stable' if factorio_version == 'stable' else 'experimental'].headless }}
+
+- name: Validate the Factorio version
+  ansible.builtin.assert:
+    that:
+      - factorio_target_version is match('^[0-9]+\.[0-9]+\.[0-9]+$')
+    fail_msg: "factorio_version must be stable, latest, or X.Y.Z, got {{ factorio_target_version }}"
+
+- name: Install Factorio {{ factorio_target_version }}
+  when: factorio_target_version != factorio_installed_version
+  block:
+    - name: Download the published Factorio checksums
+      ansible.builtin.uri:
+        url: https://factorio.com/download/sha256sums/
+        return_content: true
+      register: factorio_checksums
+      check_mode: false
+
+    - name: Find the headless checksum
+      ansible.builtin.set_fact:
+        factorio_headless_sha256: >-
+          {{ factorio_checksums.content
+             | regex_search('([0-9a-f]{64})\s+factorio-headless_linux_'
+                            ~ (factorio_target_version | regex_escape) ~ '\.tar\.xz', '\1')
+             | first }}
+
+    - name: Create the download cache
+      ansible.builtin.file:
+        path: /var/cache/factorio
+        state: directory
+        owner: root
+        group: root
+        mode: "0755"
+
+    - name: Download the headless tarball
+      ansible.builtin.get_url:
+        url: "https://factorio.com/get-download/{{ factorio_target_version }}/headless/linux64"
+        dest: "/var/cache/factorio/factorio-headless_linux_{{ factorio_target_version }}.tar.xz"
+        checksum: "sha256:{{ factorio_headless_sha256 }}"
+        owner: root
+        group: root
+        mode: "0644"
+
+    - name: Create the version directory
+      ansible.builtin.file:
+        path: "{{ factorio_install_dir }}-{{ factorio_target_version }}"
+        state: directory
+        owner: root
+        group: root
+        mode: "0755"
+
+    - name: Unpack Factorio {{ factorio_target_version }}
+      ansible.builtin.unarchive:
+        src: "/var/cache/factorio/factorio-headless_linux_{{ factorio_target_version }}.tar.xz"
+        dest: "{{ factorio_install_dir }}-{{ factorio_target_version }}"
+        remote_src: true
+        extra_opts: [--strip-components=1, --no-same-owner]
+        creates: "{{ factorio_install_dir }}-{{ factorio_target_version }}/bin/x64/factorio"
+      when: not ansible_check_mode
+
+    # Older deployments unpacked straight into the install directory.
+    - name: Move a plain install directory to its versioned name
+      ansible.builtin.command:
+        argv:
+          - mv
+          - "{{ factorio_install_dir }}"
+          - "{{ factorio_install_dir }}-{{ factorio_installed_version }}"
+        creates: "{{ factorio_install_dir }}-{{ factorio_installed_version }}"
+      when:
+        - factorio_install_path.stat.isdir | default(false)
+        - not (factorio_install_path.stat.islnk | default(false))
+        - factorio_installed_version | length > 0
+
+    - name: Keep the replaced version for rollback
+      ansible.builtin.file:
+        src: "{{ factorio_install_dir }}-{{ factorio_installed_version }}"
+        dest: "{{ factorio_install_dir }}.previous"
+        state: link
+        force: true
+      when: factorio_installed_version | length > 0
+
+    - name: Activate Factorio {{ factorio_target_version }}
+      ansible.builtin.file:
+        src: "{{ factorio_install_dir }}-{{ factorio_target_version }}"
+        dest: "{{ factorio_install_dir }}"
+        state: link
+        force: true
+      register: factorio_activation
 
 - name: Install the shared Factorio instance unit
   ansible.builtin.template:

@@ -7,129 +7,134 @@
     - vault.yml
 
   pre_tasks:
-    - name: Load local custom Factorio instances when configured
-      ansible.builtin.include_vars: "{{ item }}"
-      loop: "{{ query('ansible.builtin.first_found', custom_instance_vars) }}"
-      vars:
-        custom_instance_vars:
-          files:
-            - instances_custom.yml
-          paths:
-            - "{{ playbook_dir }}/group_vars"
-          skip: true
+    # Tagged always: every role reads factorio_instances, so a run limited
+    # with --tags must still build and validate it.
+    - name: Build and validate the Factorio instance registry
+      tags: [always]
+      block:
+        - name: Load local custom Factorio instances when configured
+          ansible.builtin.include_vars: "{{ item }}"
+          loop: "{{ query('ansible.builtin.first_found', custom_instance_vars) }}"
+          vars:
+            custom_instance_vars:
+              files:
+                - instances_custom.yml
+              paths:
+                - "{{ playbook_dir }}/group_vars"
+              skip: true
 
-    - name: Validate Factorio upload slot settings
-      ansible.builtin.assert:
-        that:
-          - factorio_upload_slot_count | int >= 0
-          - factorio_upload_slot_first_port | int >= 1
-          - >-
-            factorio_upload_slot_count | int == 0 or
-            (factorio_upload_slot_first_port | int) +
-            (factorio_upload_slot_count | int) - 1 <= 65535
-        fail_msg: >-
-          factorio_upload_slot_count must be zero or greater, and its
-          consecutive UDP port range must stay between 1 and 65535.
+        - name: Validate Factorio upload slot settings
+          ansible.builtin.assert:
+            that:
+              - factorio_upload_slot_count | int >= 0
+              - factorio_upload_slot_first_port | int >= 1
+              - >-
+                factorio_upload_slot_count | int == 0 or
+                (factorio_upload_slot_first_port | int) +
+                (factorio_upload_slot_count | int) - 1 <= 65535
+            fail_msg: >-
+              factorio_upload_slot_count must be zero or greater, and its
+              consecutive UDP port range must stay between 1 and 65535.
 
-    - name: Build Factorio upload slot configuration
-      ansible.builtin.set_fact:
-        factorio_upload_instances: >-
-          {{ factorio_upload_instances + [{
-            'id': 'upload' ~ item,
-            'name': 'Upload Slot ' ~ item,
-            'base_dir': factorio_instances_base_dir ~ '/upload' ~ item,
-            'legacy_state_dir': '/var/lib/factorio-upload' ~ item,
-            'legacy_config_dir': '/etc/factorio-upload' ~ item,
-            'port': (factorio_upload_slot_first_port | int) + item - 1,
-            'save_name': 'uploaded',
-            'scenario_name': '',
-            'manage_mods': false,
-            'mod_sync_enabled': true,
-            'upload_slot': true,
-            'description': 'FUI uploaded Factorio server',
-            'max_players': factorio_upload_slot_max_players,
-            'public': factorio_upload_slot_public,
-            'autosave_interval': factorio_upload_slot_autosave_interval,
-            'autosave_slots': factorio_upload_slot_autosave_slots,
-            'game_password': ''
-          }] }}
-      loop: "{{ range(1, (factorio_upload_slot_count | int) + 1) | list }}"
-      loop_control:
-        label: "upload{{ item }}"
+        - name: Build Factorio upload slot configuration
+          ansible.builtin.set_fact:
+            factorio_upload_instances: >-
+              {{ factorio_upload_instances + [{
+                'id': 'upload' ~ item,
+                'name': 'Upload Slot ' ~ item,
+                'base_dir': factorio_instances_base_dir ~ '/upload' ~ item,
+                'legacy_state_dir': '/var/lib/factorio-upload' ~ item,
+                'legacy_config_dir': '/etc/factorio-upload' ~ item,
+                'port': (factorio_upload_slot_first_port | int) + item - 1,
+                'save_name': 'uploaded',
+                'scenario_name': '',
+                'manage_mods': false,
+                'mod_sync_enabled': true,
+                'upload_slot': true,
+                'description': 'FUI uploaded Factorio server',
+                'max_players': factorio_upload_slot_max_players,
+                'public': factorio_upload_slot_public,
+                'autosave_interval': factorio_upload_slot_autosave_interval,
+                'autosave_slots': factorio_upload_slot_autosave_slots,
+                'game_password': ''
+              }] }}
+          loop: "{{ range(1, (factorio_upload_slot_count | int) + 1) | list }}"
+          loop_control:
+            label: "upload{{ item }}"
 
-    - name: Build normalized Factorio instance registry
-      ansible.builtin.set_fact:
-        factorio_instances: >-
-          {{ factorio_instances + [item | combine({
-            'state_dir': item.base_dir ~ '/state',
-            'config_dir': item.base_dir ~ '/config',
-            'runtime_dir': item.base_dir ~ '/runtime'
-          })] }}
-      loop: "{{ factorio_custom_instances + factorio_upload_instances }}"
-      loop_control:
-        label: "{{ item.id }}"
+        - name: Build normalized Factorio instance registry
+          ansible.builtin.set_fact:
+            factorio_instances: >-
+              {{ factorio_instances + [item | combine({
+                'state_dir': item.base_dir ~ '/state',
+                'config_dir': item.base_dir ~ '/config',
+                'runtime_dir': item.base_dir ~ '/runtime'
+              })] }}
+          loop: "{{ factorio_custom_instances + factorio_upload_instances }}"
+          loop_control:
+            label: "{{ item.id }}"
 
-    - name: Fail early when the FUI secrets are missing or still placeholders
-      ansible.builtin.assert:
-        that:
-          - vault_fui_admin_password is defined
-          - (vault_fui_admin_password | length == 0) or (vault_fui_admin_password | length >= 12)
-          - vault_fui_admin_password != 'change-me'
-          - vault_fui_secret_key is defined
-          - vault_fui_secret_key | length >= 32
-          - vault_fui_secret_key != 'change-me'
-        fail_msg: >-
-          vault.yml needs vault_fui_admin_password to be empty (authentication
-          disabled) or 12+ characters, plus a vault_fui_secret_key of 32+
-          characters, before running this play.
+        - name: Fail early when the FUI secrets are missing or still placeholders
+          ansible.builtin.assert:
+            that:
+              - vault_fui_admin_password is defined
+              - (vault_fui_admin_password | length == 0) or (vault_fui_admin_password | length >= 12)
+              - vault_fui_admin_password != 'change-me'
+              - vault_fui_secret_key is defined
+              - vault_fui_secret_key | length >= 32
+              - vault_fui_secret_key != 'change-me'
+            fail_msg: >-
+              vault.yml needs vault_fui_admin_password to be empty (authentication
+              disabled) or 12+ characters, plus a vault_fui_secret_key of 32+
+              characters, before running this play.
 
-    # Without credentials factorio refuses to register and the server is simply
-    # absent from the in-game browser, with no obvious error.
-    - name: Fail early when a public server has no factorio.com credentials
-      ansible.builtin.assert:
-        that:
-          - vault_factorio_account_username | default('', true) | length > 0
-          - vault_factorio_account_token | default('', true) | length > 0
-        fail_msg: >-
-          An instance has public: true, which requires authenticating against
-          factorio.com. Set vault_factorio_account_username and
-          vault_factorio_account_token in vault.yml (both come from
-          https://factorio.com/profile), or set public: false on every instance.
-      when: factorio_instances | selectattr('public', 'equalto', true) | list | length > 0
+        # Without credentials factorio refuses to register and the server is simply
+        # absent from the in-game browser, with no obvious error.
+        - name: Fail early when a public server has no factorio.com credentials
+          ansible.builtin.assert:
+            that:
+              - vault_factorio_account_username | default('', true) | length > 0
+              - vault_factorio_account_token | default('', true) | length > 0
+            fail_msg: >-
+              An instance has public: true, which requires authenticating against
+              factorio.com. Set vault_factorio_account_username and
+              vault_factorio_account_token in vault.yml (both come from
+              https://factorio.com/profile), or set public: false on every instance.
+          when: factorio_instances | selectattr('public', 'equalto', true) | list | length > 0
 
-    - name: Validate Factorio instance configuration
-      ansible.builtin.assert:
-        that:
-          - factorio_instances | length > 0
-          - factorio_instances | map(attribute='id') | unique | list | length == factorio_instances | length
-          - factorio_instances | map(attribute='base_dir') | unique | list | length == factorio_instances | length
-          - factorio_instances | map(attribute='state_dir') | unique | list | length == factorio_instances | length
-          - factorio_instances | map(attribute='config_dir') | unique | list | length == factorio_instances | length
-          - factorio_instances | map(attribute='runtime_dir') | unique | list | length == factorio_instances | length
-          - factorio_instances | map(attribute='port') | unique | list | length == factorio_instances | length
-        fail_msg: >-
-          factorio_instances must be non-empty and use unique IDs, base/state/
-          config/runtime directories, and UDP ports.
+        - name: Validate Factorio instance configuration
+          ansible.builtin.assert:
+            that:
+              - factorio_instances | length > 0
+              - factorio_instances | map(attribute='id') | unique | list | length == factorio_instances | length
+              - factorio_instances | map(attribute='base_dir') | unique | list | length == factorio_instances | length
+              - factorio_instances | map(attribute='state_dir') | unique | list | length == factorio_instances | length
+              - factorio_instances | map(attribute='config_dir') | unique | list | length == factorio_instances | length
+              - factorio_instances | map(attribute='runtime_dir') | unique | list | length == factorio_instances | length
+              - factorio_instances | map(attribute='port') | unique | list | length == factorio_instances | length
+            fail_msg: >-
+              factorio_instances must be non-empty and use unique IDs, base/state/
+              config/runtime directories, and UDP ports.
 
-    - name: Validate each Factorio instance
-      ansible.builtin.assert:
-        that:
-          - item.id is match('^[a-z0-9][a-z0-9_-]{0,31}$')
-          - item.base_dir is match('^/')
-          - item.state_dir is match('^/')
-          - item.config_dir is match('^/')
-          - item.runtime_dir is match('^/')
-          - item.port | int >= 1
-          - item.port | int <= 65535
-          - item.save_name | length > 0
-          - item.name | length > 0
-          - item.state_dir == item.base_dir ~ '/state'
-          - item.config_dir == item.base_dir ~ '/config'
-          - item.runtime_dir == item.base_dir ~ '/runtime'
-        fail_msg: "Invalid Factorio instance configuration for {{ item.id | default('unknown') }}."
-      loop: "{{ factorio_instances }}"
-      loop_control:
-        label: "{{ item.id | default('unknown') }}"
+        - name: Validate each Factorio instance
+          ansible.builtin.assert:
+            that:
+              - item.id is match('^[a-z0-9][a-z0-9_-]{0,31}$')
+              - item.base_dir is match('^/')
+              - item.state_dir is match('^/')
+              - item.config_dir is match('^/')
+              - item.runtime_dir is match('^/')
+              - item.port | int >= 1
+              - item.port | int <= 65535
+              - item.save_name | length > 0
+              - item.name | length > 0
+              - item.state_dir == item.base_dir ~ '/state'
+              - item.config_dir == item.base_dir ~ '/config'
+              - item.runtime_dir == item.base_dir ~ '/runtime'
+            fail_msg: "Invalid Factorio instance configuration for {{ item.id | default('unknown') }}."
+          loop: "{{ factorio_instances }}"
+          loop_control:
+            label: "{{ item.id | default('unknown') }}"
 
   roles:
     - role: common

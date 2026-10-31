@@ -23,7 +23,8 @@ fui/                       FastAPI application
   app/systemd.py           Fixed-argument systemd and journal access
   app/players.py           Journal-derived player sessions
   app/logs.py              Human-readable log events
-  app/mods.py              Save parsing and mod synchronization
+  app/mods.py              Save parsing, mod synchronization, and mod updates
+  app/engine.py            Factorio engine versions, upgrade, and rollback
   app/uploads.py           Transactional save upload handling
   app/templates/           Server-rendered interface
   tests/                   Unit tests
@@ -122,6 +123,9 @@ names and filesystem paths out of browser-controlled input.
 | `/fui/api/servers/{id}/service/{action}` | POST | Start, stop, or restart |
 | `/fui/api/servers/{id}/reset` | POST | Archive and reset a map |
 | `/fui/api/servers/{id}/mods/sync` | POST | Synchronize save-required mods |
+| `/fui/api/servers/{id}/mods/update` | POST | Update mods for the installed Factorio |
+| `/fui/api/engine` | GET | Installed, previous, and latest stable Factorio |
+| `/fui/api/engine/{upgrade,rollback}` | POST | Change the shared Factorio version |
 | `/fui/api/upload-slots` | GET | Available upload slots |
 | `/fui/api/upload-slots/{id}` | POST | Install an uploaded save |
 
@@ -156,6 +160,34 @@ set is restored if installation fails.
 `manage_mods: true` gives ownership to Ansible; `manage_mods: false` allows FUI
 or an operator to own the instance mod directory. Do not combine both flows.
 
+Mod lists always name every built-in mod (`base`, `elevated-rails`, `quality`,
+`recycler`, `space-age`). Factorio enables unlisted built-in mods, and 2.1 added
+the Space Age-only `recycler`, so it is enabled only with Quality or Space Age.
+
+### Mod Updates
+
+`update_mods` picks, for each enabled mod, the newest portal release whose
+`info.json` `factorio_version` equals the engine's major.minor version.
+Factorio 2.1 refuses to load mods built for 2.0. Required dependencies,
+including `~` and `+` prefixed ones, are resolved recursively and added to
+`mod-list.json`; `!`, `?`, and `(?)` dependencies are ignored. If any mod has no
+compatible release, nothing is changed. Replaced archives go to the sibling
+`mods-backup/` directory, outside the mods directory where Factorio would try to
+load them. The engine upgrade runs the same code with `only_incompatible`, which
+leaves mods that already match the new version untouched.
+
+### Engine Versions
+
+`/opt/factorio` is a symlink to `/opt/factorio-<version>`, and
+`/opt/factorio.previous` points at the rollback target. `engine.py` runs as a
+script under the root helper `/etc/fui/factorio-engine.sh`, which sudo permits
+only with the literal argument `upgrade` or `rollback`. The target version comes
+from factorio.com (`stable.headless`) or the previous symlink, never from the
+request. A plain `/opt/factorio` directory from older deployments is renamed to
+its versioned name on the first switch. Docker deployments leave
+`FUI_ENGINE_SCRIPT` empty and `FUI_MOD_UPDATE_ENABLED` unset, which hides both
+features because the engine is part of the image there.
+
 ### Uploads
 
 Upload slots are provisioned declaratively. FUI validates the ZIP, installs it
@@ -168,7 +200,8 @@ definitions, helpers, and sudo policy.
 - uvicorn binds only to `127.0.0.1`.
 - Subprocesses use fixed argument arrays and allow-listed actions.
 - Browser input cannot select arbitrary units, paths, commands, or arguments.
-- Sudo permits only generated unit actions and argument-free instance helpers.
+- Sudo permits only generated unit actions, argument-free instance helpers, and
+  the engine helper with exactly `upgrade` or `rollback`.
 - `fui.service` must not use `NoNewPrivileges`; it would prevent required sudo.
 - State-changing routes require `X-Requested-With: fui`.
 - FUI reads journals through `systemd-journal` group membership, not sudo.

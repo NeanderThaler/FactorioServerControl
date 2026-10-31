@@ -199,6 +199,7 @@
         <button class="tab" data-tab="players">Players<span class="badge" id="onlinecount">0</span></button>
         <button class="tab" data-tab="mods">Mods</button>
         <button class="tab" data-tab="newserver">New Server</button>
+        <button class="tab" data-tab="engine">Factorio<span class="badge" id="enginebadge" hidden>new</span></button>
       </div>
     </nav>
     {% if logout_url %}
@@ -325,6 +326,40 @@
     <pre id="modresult" hidden></pre>
     </div>
   </section>
+  <section class="card accentuated" id="updatemods-card" hidden>
+    <div class="card-body">
+    <div class="logbar">
+      <h2>Update mods</h2>
+    </div>
+    <p>Installs the newest mod portal release of every enabled mod that supports the installed Factorio version, including missing required dependencies.</p>
+    <div class="actions">
+      <button id="updatemods">Update mods</button>
+    </div>
+    <p class="hint">The selected server is stopped while mods are replaced and started again afterwards. Replaced archives are kept in a backup next to the mods directory. Newer mod versions may migrate the map irreversibly.</p>
+    <p class="error" id="updatemoderror"></p>
+    <pre id="updatemodresult" hidden></pre>
+    </div>
+  </section>
+  </div>
+
+  <div id="panel-engine" hidden>
+  <section class="card accentuated">
+    <h2 class="card-title">Factorio headless</h2>
+    <div class="card-body">
+    <dl>
+      <div><dt>Installed</dt><dd id="engine-installed">–</dd></div>
+      <div><dt>Latest stable</dt><dd id="engine-latest">–</dd></div>
+      <div><dt>Previous</dt><dd id="engine-previous">–</dd></div>
+    </dl>
+    <div class="actions">
+      <button class="start" id="engine-upgrade" disabled>Upgrade</button>
+      <button class="danger" id="engine-rollback" disabled>Roll back</button>
+    </div>
+    <p class="hint" id="engine-hint">The engine is shared by every server. Upgrading stops all running servers, installs the new version, updates mods that would no longer load, and starts the servers again. The replaced version is kept for rollback.</p>
+    <p class="error" id="engine-error"></p>
+    <pre id="engine-result" hidden></pre>
+    </div>
+  </section>
   </div>
 
   <div id="panel-newserver" hidden>
@@ -379,6 +414,10 @@
   var busyButtons = buttons.concat([resetButton, deleteUploadButton]);
   var errorBox = document.getElementById("error");
   var syncModsButton = document.getElementById("syncmods");
+  var updateModsButton = document.getElementById("updatemods");
+  var engineUpgradeButton = document.getElementById("engine-upgrade");
+  var engineRollbackButton = document.getElementById("engine-rollback");
+  var engineState = null;
   var serverTrigger = document.getElementById("server-trigger");
   var serverMenu = document.getElementById("server-menu");
   var uploadForm = document.getElementById("upload-form");
@@ -660,6 +699,8 @@
   function applySelectedServer() {
     var selected = serverCatalog.find(function (server) { return server.id === currentServer; });
     syncModsButton.disabled = !selected || !selected.mod_sync_enabled;
+    updateModsButton.disabled = !selected || !selected.mod_update_enabled;
+    document.getElementById("updatemods-card").hidden = !selected || !selected.mod_update_enabled;
     resetButton.hidden = !selected || !selected.reset_enabled;
     deleteUploadButton.hidden = !selected || !selected.upload_slot;
     document.getElementById("reset-hint").hidden = resetButton.hidden;
@@ -774,6 +815,8 @@
     showError("");
     document.getElementById("moderror").textContent = "";
     document.getElementById("modresult").hidden = true;
+    document.getElementById("updatemoderror").textContent = "";
+    document.getElementById("updatemodresult").hidden = true;
     refreshAll();
   });
 
@@ -845,15 +888,117 @@
       });
   });
 
+  function describeModUpdate(body) {
+    var lines = [];
+    (body.updated || []).forEach(function (mod) {
+      lines.push(mod.name + " " + (mod.from || "–") + " → " + mod.to);
+    });
+    (body.added || []).forEach(function (name) { lines.push("+ " + name + " (required dependency)"); });
+    if (!lines.length) { lines.push("All mods are already up to date."); }
+    lines.push((body.unchanged || []).length + " unchanged");
+    return lines.join("\n");
+  }
+
+  updateModsButton.addEventListener("click", function () {
+    if (!window.confirm("Stop this server and update its mods to the newest compatible releases?\n\nNewer mod versions may migrate the map irreversibly.")) { return; }
+    updateModsButton.disabled = true;
+    document.getElementById("updatemoderror").textContent = "";
+    document.getElementById("updatemodresult").hidden = true;
+    request(serverPath("/mods/update"), { method: "POST" })
+      .then(function (body) {
+        var result = document.getElementById("updatemodresult");
+        result.textContent = "Factorio " + body.factorio_version + "\n" + describeModUpdate(body);
+        result.hidden = false;
+      })
+      .then(refreshAll)
+      .catch(function (error) { document.getElementById("updatemoderror").textContent = error.message; })
+      .then(function () {
+        var selected = serverCatalog.find(function (server) { return server.id === currentServer; });
+        updateModsButton.disabled = !selected || !selected.mod_update_enabled;
+      });
+  });
+
+  function renderEngine(body) {
+    engineState = body;
+    text("engine-installed", body.installed || "Not installed");
+    text("engine-latest", body.latest_stable || (body.latest_error ? "Unavailable" : null));
+    text("engine-previous", body.previous);
+    engineUpgradeButton.textContent = body.update_available
+      ? "Upgrade to " + body.latest_stable : "Up to date";
+    engineUpgradeButton.disabled = !body.enabled || !body.update_available;
+    engineRollbackButton.textContent = body.previous ? "Roll back to " + body.previous : "Roll back";
+    engineRollbackButton.disabled = !body.enabled || !body.previous;
+    document.getElementById("enginebadge").hidden = !body.update_available;
+    if (!body.enabled) {
+      document.getElementById("engine-hint").textContent =
+        "Engine management is disabled in this deployment. Rebuild or redeploy to change the Factorio version.";
+    }
+    if (body.latest_error) { document.getElementById("engine-error").textContent = body.latest_error; }
+  }
+
+  function refreshEngine() {
+    return request("api/engine").then(renderEngine);
+  }
+
+  function describeEngineChange(body) {
+    if (!body.changed) { return "Factorio " + body.to + " is already installed."; }
+    var lines = ["Factorio " + (body.from || "–") + " → " + body.to];
+    (body.instances || []).forEach(function (instance) {
+      var state = instance.error ? "FAILED: " + instance.error
+        : instance.started ? "started" : (instance.was_running ? "not started" : "stopped");
+      lines.push("");
+      lines.push(instance.id + ": " + state);
+      if (instance.mods) { lines.push(describeModUpdate(instance.mods).replace(/^/gm, "  ")); }
+    });
+    return lines.join("\n");
+  }
+
+  function changeEngine(action, confirmText) {
+    if (!window.confirm(confirmText)) { return; }
+    if (window.prompt("Type " + action.toUpperCase() + " to confirm.") !== action.toUpperCase()) { return; }
+    engineUpgradeButton.disabled = true;
+    engineRollbackButton.disabled = true;
+    document.getElementById("engine-error").textContent = "";
+    var result = document.getElementById("engine-result");
+    result.textContent = "Working… this can take several minutes. Keep this page open.";
+    result.hidden = false;
+    request("api/engine/" + action, { method: "POST" })
+      .then(function (body) { result.textContent = describeEngineChange(body); })
+      .catch(function (error) {
+        result.hidden = true;
+        document.getElementById("engine-error").textContent = error.message;
+      })
+      .then(function () { return Promise.all([refreshEngine(), loadServers()]); })
+      .catch(function (error) { document.getElementById("engine-error").textContent = error.message; });
+  }
+
+  engineUpgradeButton.addEventListener("click", function () {
+    if (!engineState) { return; }
+    var online = serverCatalog.reduce(function (sum, server) { return sum + (server.players.online_count || 0); }, 0);
+    changeEngine("upgrade",
+      "Upgrade Factorio from " + engineState.installed + " to " + engineState.latest_stable + "?\n\n" +
+      "All running servers are stopped" + (online ? " (" + online + " player(s) online)" : "") +
+      ", mods that no longer load are updated, and the servers are started again. " +
+      "Players need the same Factorio version to join.");
+  });
+
+  engineRollbackButton.addEventListener("click", function () {
+    if (!engineState) { return; }
+    changeEngine("rollback",
+      "Roll Factorio back from " + engineState.installed + " to " + engineState.previous + "?\n\n" +
+      "All running servers are stopped and restarted. Saves written by the newer version may not load in the older one.");
+  });
+
   Array.prototype.forEach.call(document.querySelectorAll(".tab"), function (tab) {
     tab.addEventListener("click", function () {
       var name = tab.getAttribute("data-tab");
-      var titles = { server: "Server Controls", players: "Players", mods: "Mods", newserver: "New Server" };
+      var titles = { server: "Server Controls", players: "Players", mods: "Mods", newserver: "New Server", engine: "Factorio" };
       var subtitles = {
         server: "Manage the selected Factorio instance.",
         players: "Review player activity for the selected instance.",
-        mods: "Inspect and synchronize the selected instance's mods.",
-        newserver: "Start a public Factorio server from an uploaded save."
+        mods: "Inspect, synchronize, and update the selected instance's mods.",
+        newserver: "Start a public Factorio server from an uploaded save.",
+        engine: "Upgrade or roll back the Factorio headless version shared by all servers."
       };
       Array.prototype.forEach.call(document.querySelectorAll(".tab"), function (other) {
         other.classList.toggle("active", other === tab);
@@ -864,6 +1009,10 @@
       document.getElementById("panel-players").hidden = name !== "players";
       document.getElementById("panel-mods").hidden = name !== "mods";
       document.getElementById("panel-newserver").hidden = name !== "newserver";
+      document.getElementById("panel-engine").hidden = name !== "engine";
+      if (name === "engine") {
+        refreshEngine().catch(function (error) { document.getElementById("engine-error").textContent = error.message; });
+      }
       document.getElementById("sidebar").classList.remove("open");
       document.getElementById("menu-toggle").setAttribute("aria-expanded", "false");
     });
@@ -876,6 +1025,7 @@
   });
 
   Promise.all([loadServers(), loadUploadSlots()]).catch(function (error) { showError(error.message); });
+  refreshEngine().catch(function () { /* shown when the Factorio tab is opened */ });
   window.setInterval(function () {
     loadServers(currentServer, false).then(refreshAll).catch(function (error) { showError(error.message); });
   }, 10000);

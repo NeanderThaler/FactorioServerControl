@@ -49,6 +49,12 @@ class Settings:
     cookie_secure: bool
     session_ttl: int
     instances: tuple[ServerInstance, ...]
+    # Empty disables FUI-driven engine upgrades (e.g. in the Docker image,
+    # where the engine version is part of the image).
+    engine_script_path: str = ""
+    engine_timeout: int = 1800
+    factorio_install_dir: str = "/opt/factorio"
+    mod_update_enabled: bool = False
 
     def instance(self, instance_id: str) -> ServerInstance:
         for instance in self.instances:
@@ -73,6 +79,13 @@ def _require_absolute_path(env_var: str, default: str) -> str:
     value = os.environ.get(env_var) or default
     if not os.path.isabs(value):
         raise RuntimeError(f"{env_var} must be an absolute path, got {value!r}.")
+    return value
+
+
+def _optional_absolute_path(env_var: str) -> str:
+    value = os.environ.get(env_var, "")
+    if value and not os.path.isabs(value):
+        raise RuntimeError(f"{env_var} must be empty or an absolute path, got {value!r}.")
     return value
 
 
@@ -200,4 +213,8 @@ def get_settings() -> Settings:
         cookie_secure=os.environ.get("FUI_COOKIE_SECURE", "false").lower() == "true",
         session_ttl=int(os.environ.get("FUI_SESSION_TTL", str(7 * 24 * 3600))),
         instances=instances,
+        engine_script_path=_optional_absolute_path("FUI_ENGINE_SCRIPT"),
+        engine_timeout=int(os.environ.get("FUI_ENGINE_TIMEOUT", "1800")),
+        factorio_install_dir=_require_absolute_path("FUI_FACTORIO_INSTALL_DIR", "/opt/factorio"),
+        mod_update_enabled=os.environ.get("FUI_MOD_UPDATE_ENABLED", "false").lower() == "true",
     )

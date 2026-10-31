@@ -322,7 +322,7 @@
 - name: Schedule restart after binary update for {{ factorio_instance_id }}
   ansible.builtin.debug:
     msg: Factorio binary changed
-  changed_when: factorio_download.changed or factorio_unpack.changed
+  changed_when: factorio_activation is changed
   notify: Restart current factorio instance
 
 - name: Check whether {{ factorio_instance_id }} has a startable save
