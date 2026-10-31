@@ -147,6 +147,44 @@
     label: "{{ item.id }}"
   when: not (item.mod_sync_enabled | default(true) | bool)
 
+- name: Install fixed mod update helpers
+  ansible.builtin.template:
+    src: factorio-update-mods.sh.j2
+    dest: "{{ item.config_dir }}/factorio-update-mods.sh"
+    owner: root
+    group: root
+    mode: "0700"
+    validate: sh -n %s
+  loop: "{{ fui_instances }}"
+  loop_control:
+    label: "{{ item.id }}"
+  when: item.mod_sync_enabled | default(true) | bool
+
+- name: Remove disabled mod update helpers
+  ansible.builtin.file:
+    path: "{{ item.config_dir }}/factorio-update-mods.sh"
+    state: absent
+  loop: "{{ fui_instances }}"
+  loop_control:
+    label: "{{ item.id }}"
+  when: not (item.mod_sync_enabled | default(true) | bool)
+
+- name: Install the Factorio engine helper
+  ansible.builtin.template:
+    src: factorio-engine.sh.j2
+    dest: "{{ fui_engine_script }}"
+    owner: root
+    group: root
+    mode: "0700"
+    validate: sh -n %s
+  when: fui_engine_management_enabled | bool
+
+- name: Remove the disabled Factorio engine helper
+  ansible.builtin.file:
+    path: "{{ fui_engine_script }}"
+    state: absent
+  when: not (fui_engine_management_enabled | bool)
+
 - name: Install upload slot deletion helpers
   ansible.builtin.template:
     src: factorio-delete-upload.sh.j2

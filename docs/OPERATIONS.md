@@ -142,6 +142,8 @@ The first run downloads Factorio, creates accounts and instance folders,
 installs systemd units, deploys FUI, configures nginx, and starts custom
 instances. Empty upload slots remain stopped until FUI installs a save.
 Re-running the playbook applies configuration and application updates.
+A full run also starts every stopped custom instance; use `--tags fui,nginx`
+to update only the web console.
 
 ## Verify
 
@@ -181,3 +183,39 @@ them.
 
 To pin or upgrade Factorio, change `factorio_version` in
 `ansible/group_vars/factorio.yml`, run check mode, then deploy the full playbook.
+
+### Upgrading Factorio From FUI
+
+The **Factorio** tab shows the installed, latest stable, and previous versions.
+**Upgrade** downloads the latest stable headless release, verifies its
+published SHA-256 checksum, and unpacks it to `/opt/factorio-<version>`. It then
+stops every running server, points the `/opt/factorio` symlink at the new
+version, and updates each instance's mods whose `factorio_version` no longer
+matches. Finally it starts the servers that were running before. A server whose
+mods cannot be updated, for example because a mod has no release for the new
+version, stays stopped and the error is reported. Players need the same
+Factorio version as the server to join.
+
+The replaced version stays available through `/opt/factorio.previous`.
+**Roll back** switches back to it and adjusts mods the same way. Saves written
+by a newer Factorio version may not load in an older one. Only the active and
+previous versions are kept on disk.
+
+With `factorio_version: stable` or `latest`, Ansible installs Factorio only when
+none is installed, so it never undoes an FUI upgrade or rollback. A pinned
+version such as `2.1.23` is switched to on the next playbook run; update the
+mods afterwards when the major or minor version changed.
+
+### Updating Mods From FUI
+
+**Mods → Update mods** installs the newest Mod Portal release of every enabled
+mod for the installed Factorio version, adding missing required dependencies.
+The server is stopped during the update and restarted if it was running.
+Replaced archives and the previous `mod-list.json` are kept in
+`state/mods-backup/<timestamp>/`, with the five newest backups retained.
+Downloads need the factorio.com username and token from the instance's server
+settings.
+
+Use `--tags` for focused deployments, for example
+`ansible-playbook site.yml --ask-vault-pass --tags fui,nginx`. The tasks that
+build the instance registry always run, so a focused run is safe.

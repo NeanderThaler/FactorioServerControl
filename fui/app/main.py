@@ -23,8 +23,9 @@ from fastapi.templating import Jinja2Templates
 from . import __version__
 from .auth import LoginThrottle, is_authenticated, issue_token, verify_password
 from .config import get_settings
+from .engine import EngineError, engine_status, latest_stable
 from .logs import read_clean_logs
-from .mods import ModSyncError, read_mod_inventory, run_privileged_sync
+from .mods import ModSyncError, read_mod_inventory, run_privileged_helper, run_privileged_sync
 from .players import read_players
 from .systemd import ServiceError, control, delete_upload, read_logs, read_status, reset_map
 from .uploads import (
@@ -41,6 +42,9 @@ settings = get_settings()
 templates = Jinja2Templates(directory=str(Path(__file__).parent / "templates"))
 throttle = LoginThrottle()
 upload_lock = threading.Lock()
+# Engine changes stop every server and rewrite mods, so they must not overlap
+# with each other, with uploads, or with per-server mod changes.
+maintenance_lock = threading.Lock()
 
 app = FastAPI(
     title="Factorio Server Control",
@@ -225,6 +229,7 @@ def api_servers() -> dict[str, Any]:
                 "service": instance.service_name,
                 "upload_slot": instance.upload_slot,
                 "mod_sync_enabled": instance.mod_sync_enabled,
+                "mod_update_enabled": settings.mod_update_enabled and instance.mod_sync_enabled,
                 "reset_enabled": instance.reset_enabled,
                 "status": server_status,
                 "players": {
@@ -435,6 +440,82 @@ def api_instance_sync_mods(instance_id: str) -> dict[str, object]:
     except ModSyncError as exc:
         logger.warning("Mod synchronization for %s failed: %s", instance_id, exc)
         raise HTTPException(status.HTTP_502_BAD_GATEWAY, str(exc)) from exc
+
+
+@app.post(
+    "/api/servers/{instance_id}/mods/update",
+    dependencies=[Depends(require_session), Depends(require_ajax_header)],
+)
+def api_instance_update_mods(instance_id: str) -> dict[str, object]:
+    instance, _ = _instance_settings(instance_id)
+    if not (settings.mod_update_enabled and instance.mod_sync_enabled):
+        raise HTTPException(status.HTTP_409_CONFLICT, "Mod updates are disabled for this instance")
+    if not maintenance_lock.acquire(blocking=False):
+        raise HTTPException(status.HTTP_409_CONFLICT, "Another maintenance task is running")
+    logger.warning("Mod update requested for %s", instance_id)
+    try:
+        return run_privileged_helper(
+            str(Path(instance.mod_sync_script_path).with_name("factorio-update-mods.sh")),
+            settings.sudo_path,
+            settings.mod_sync_timeout,
+            "Mod update",
+        )
+    except ModSyncError as exc:
+        logger.warning("Mod update for %s failed: %s", instance_id, exc)
+        raise HTTPException(status.HTTP_502_BAD_GATEWAY, str(exc)) from exc
+    finally:
+        maintenance_lock.release()
+
+
+@app.get("/api/engine", dependencies=[Depends(require_session)])
+def api_engine() -> dict[str, Any]:
+    result: dict[str, Any] = {
+        "enabled": bool(settings.engine_script_path),
+        **engine_status(Path(settings.factorio_install_dir)),
+        "latest_stable": None,
+        "latest_error": None,
+    }
+    try:
+        result["latest_stable"] = latest_stable()
+    except EngineError as exc:
+        result["latest_error"] = str(exc)
+    installed, latest = result["installed"], result["latest_stable"]
+    result["update_available"] = bool(
+        installed and latest
+        and tuple(map(int, latest.split("."))) > tuple(map(int, installed.split(".")))
+    )
+    return result
+
+
+class EngineAction(str, Enum):
+    UPGRADE = "upgrade"
+    ROLLBACK = "rollback"
+
+
+@app.post(
+    "/api/engine/{action}",
+    dependencies=[Depends(require_session), Depends(require_ajax_header)],
+)
+def api_engine_change(action: EngineAction) -> dict[str, object]:
+    if not settings.engine_script_path:
+        raise HTTPException(status.HTTP_409_CONFLICT, "Engine management is disabled")
+    if not maintenance_lock.acquire(blocking=False):
+        raise HTTPException(status.HTTP_409_CONFLICT, "Another maintenance task is running")
+    logger.warning("Factorio engine %s requested", action.value)
+    try:
+        with upload_lock:
+            return run_privileged_helper(
+                settings.engine_script_path,
+                settings.sudo_path,
+                settings.engine_timeout,
+                f"Factorio {action.value}",
+                action.value,
+            )
+    except ModSyncError as exc:
+        logger.warning("Factorio engine %s failed: %s", action.value, exc)
+        raise HTTPException(status.HTTP_502_BAD_GATEWAY, str(exc)) from exc
+    finally:
+        maintenance_lock.release()
 
 
 @app.get("/api/status", dependencies=[Depends(require_session)])

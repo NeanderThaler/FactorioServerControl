@@ -2,6 +2,47 @@
 
 All notable changes to Factorio Server Control are documented here.
 
+## 1.2.0 - 2026-10-31
+
+### Added
+
+- FUI **Factorio** tab: upgrade the shared headless engine to the latest stable
+    release or roll back to the previous version. Downloads are verified against
+    factorio.com SHA-256 checksums, each version lives in its own directory, and
+    `/opt/factorio` is switched atomically through a symlink. Mods that would no
+    longer load are updated, and only previously running servers are restarted.
+- FUI **Update mods**: install the newest portal release of every enabled mod
+    for the installed Factorio version, add missing required dependencies, and
+    keep replaced archives in `state/mods-backup/`.
+
+### Changed
+
+- The Ansible role installs Factorio into versioned directories. With
+    `factorio_version: stable` or `latest` it only installs when nothing is
+    installed, so it never undoes an upgrade or rollback made in FUI; a pinned
+    version is switched to exactly. Downloads are checksum-verified.
+- Mod lists always name every built-in mod. Factorio 2.1's new `recycler` mod
+    is enabled only with Quality or Space Age, because an unlisted built-in mod
+    is enabled by default and would make a vanilla server require Space Age.
+
+### Fixed
+
+- Mod sync read the stale `level-init.dat` of saves whose level data is split
+    into `level.dat0..N` chunks, installing the mods the map was created with
+    instead of the current ones. Chunked level data is now read first.
+- Built-in mods are discovered from the Factorio `data/` directory, so a newly
+    bundled mod such as `recycler` is no longer requested from the Mod Portal,
+    and the Ansible and Docker mod lists name every bundled mod explicitly.
+- A pinned `factorio_version` change now installs and activates that version;
+    previously the unpack step was skipped because the install already existed.
+- `test_uses_journal_time_for_shutdown` no longer depends on the local time
+    zone.
+- The nginx location for engine upgrades redirected `GET /fui/api/engine` in a
+    loop, so the **Factorio** tab showed a network error.
+- `ansible-playbook --tags ...` skipped building the instance registry, which
+    rendered an empty FUI instance list. The registry tasks are now tagged
+    `always`.
+
 ## 1.1.0 - 2026-08-09
 
 ### Added

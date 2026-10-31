@@ -144,6 +144,14 @@
       become: false
       register: factorio_local_mods
 
+    - name: Locate mods bundled with Factorio
+      ansible.builtin.find:
+        paths: "{{ factorio_install_dir }}/data"
+        patterns: info.json
+        recurse: true
+        depth: 2
+      register: factorio_bundled_mods
+
     - name: Install repository mod archives
       ansible.builtin.copy:
         src: "{{ item.path }}"
@@ -322,7 +330,7 @@
 - name: Schedule restart after binary update for {{ factorio_instance_id }}
   ansible.builtin.debug:
     msg: Factorio binary changed
-  changed_when: factorio_download.changed or factorio_unpack.changed
+  changed_when: factorio_activation is changed
   notify: Restart current factorio instance
 
 - name: Check whether {{ factorio_instance_id }} has a startable save

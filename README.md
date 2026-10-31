@@ -15,6 +15,10 @@ web application unrestricted root access.
 - Start, stop, restart, map reset, status, uptime, and player activity.
 - Human-readable journal logs and current mod inventory.
 - Exact save-required mod synchronization with checksum verification.
+- One-click mod updates to the newest releases for the installed Factorio
+  version, including missing required dependencies.
+- One-click Factorio headless upgrades to the latest stable release, with
+  automatic mod migration and rollback to the previous version.
 - Transactional save uploads into configurable dormant server slots.
 - Optional password login with signed sessions and throttling; an explicitly
   empty administrator password enables direct access.

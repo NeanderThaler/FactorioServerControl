@@ -10,6 +10,8 @@ factorio_install_dir: /opt/factorio
 factorio_instances_base_dir: /srv/factorio/instances
 factorio_scenario_src: "{{ playbook_dir }}/../scenarios"
 factorio_mods_src: "{{ playbook_dir }}/../mods"
+# Bundled mods to enable. Bundled mods not listed here are disabled, except
+# Factorio 2.1's recycler, which follows quality and space-age.
 factorio_dlc_mods:
   - elevated-rails
   - quality
@@ -44,7 +46,7 @@ nginx_site_name: factorio
 nginx_web_root: /var/www/factorio
 nginx_htpasswd_file: /etc/nginx/.htpasswd_fui
 
-# The host already serves other vhosts on port 80 and alma.dedyn.io owns
+# The host already serves other vhosts on port 80 and another site owns
 # default_server there. Claiming it twice makes "nginx -t" fail, so this site
 # matches on an exact server_name instead: nginx prefers an exact name match
 # over the default_server fallback, so the bare IP lands here while named
