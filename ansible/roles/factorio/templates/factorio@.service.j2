@@ -5,6 +5,9 @@ Documentation=https://wiki.factorio.com/Multiplayer
 After=network-online.target
 Wants=network-online.target
 PartOf=factorio-servers.target
+# Give up after repeated start failures instead of flooding the journal.
+StartLimitIntervalSec=300
+StartLimitBurst=5
 
 [Service]
 Type=simple

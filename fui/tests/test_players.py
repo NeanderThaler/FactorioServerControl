@@ -46,3 +46,51 @@ class PlayerResetRetentionTests(TestCase):
                 "last_seen": 2_400.0,
             },
         )
+
+
+class PlayerDroppedConnectionTests(TestCase):
+    def test_peer_removal_without_leave_ends_session(self) -> None:
+        entries = [
+            {
+                "__REALTIME_TIMESTAMP": 1_000_000_000,
+                "MESSAGE": "49080.797 Info InputActionHandler.cpp:5065: UpdateTick (2546840) "
+                "processed PlayerJoinGame peerID(18) playerIndex(16) mode(create)",
+            },
+            {
+                "__REALTIME_TIMESTAMP": 1_000_000_000,
+                "MESSAGE": "2026-11-01 09:07:27 [JOIN] vectoroc joined the game",
+            },
+            {
+                "__REALTIME_TIMESTAMP": 1_100_000_000,
+                "MESSAGE": "49100.000 Info InputActionHandler.cpp:5065: UpdateTick (2546900) "
+                "processed PlayerJoinGame peerID(19) playerIndex(8) mode(connect)",
+            },
+            {
+                "__REALTIME_TIMESTAMP": 1_100_000_000,
+                "MESSAGE": "2026-11-01 09:09:07 [JOIN] Alice joined the game",
+            },
+            {
+                "__REALTIME_TIMESTAMP": 1_138_000_000,
+                "MESSAGE": "49218.913 Info ServerMultiplayerManager.cpp:1085: "
+                "Disconnect notification for peer (18)",
+            },
+            {
+                "__REALTIME_TIMESTAMP": 1_138_000_000,
+                "MESSAGE": "49218.913 Info ServerSynchronizer.cpp:613: "
+                "nextHeartbeatSequenceNumber(2951408) removing peer(18).",
+            },
+        ]
+
+        with (
+            patch("app.players.read_journal_json", return_value=(entries, 20_000)),
+            patch("app.players.read_status", return_value={"running": True}),
+            patch("app.players.time.time", return_value=1_200.0),
+        ):
+            result = read_players(object())
+
+        self.assertEqual(result["online_count"], 1)
+        players = {player["name"]: player for player in result["players"]}
+        self.assertTrue(players["Alice"]["online"])
+        self.assertFalse(players["vectoroc"]["online"])
+        self.assertEqual(players["vectoroc"]["total_seconds"], 138.0)
+        self.assertEqual(players["vectoroc"]["last_seen"], 1_138.0)

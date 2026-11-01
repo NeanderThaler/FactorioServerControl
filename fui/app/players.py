@@ -9,13 +9,16 @@ from __future__ import annotations
 
 import re
 import time
+from collections import deque
 from typing import Any
 
 from .config import Settings
 from .systemd import read_journal_json, read_status
 
 # Coarse pre-filter handed to journalctl; every line is re-checked below.
-_JOURNAL_GREP = r"\[JOIN\]|\[LEAVE\]|; Factorio |Goodbye"
+_JOURNAL_GREP = (
+    r"\[JOIN\]|\[LEAVE\]|; Factorio |Goodbye|processed PlayerJoinGame|removing peer\("
+)
 
 _DEFAULT_EVENTS = 20000
 
@@ -30,6 +33,12 @@ _LEAVE = re.compile(rf"^{_CLOCK} \[LEAVE\] (?P<name>.+) left the game$")
 # Engine lines are prefixed with seconds-since-start, which chat cannot forge.
 _RUN_START = re.compile(rf"^\s*[\d.]+ {_CLOCK}; Factorio \d")
 _RUN_END = re.compile(r"^\s*[\d.]+ Goodbye\s*$")
+# A timed-out or dropped client never gets a [LEAVE] line, only a peer removal,
+# so the peer id announced just before its [JOIN] is kept to close it later.
+_PEER_JOIN = re.compile(
+    r"^\s*[\d.]+ Info \w+\.cpp:\d+: UpdateTick \(\d+\) processed PlayerJoinGame peerID\((?P<peer>\d+)\)"
+)
+_PEER_REMOVED = re.compile(r"^\s*[\d.]+ Info \w+\.cpp:\d+: .*removing peer\((?P<peer>\d+)\)")
 
 
 def _blank() -> dict[str, Any]:
@@ -51,6 +60,8 @@ def read_players(
     first_seen: float | None = None
     last_event: float | None = None
     last_join: dict[str, Any] | None = None
+    pending_peers: deque[str] = deque()
+    peer_names: dict[str, str] = {}
 
     def close(name: str, end: float) -> None:
         start = open_since.pop(name, None)
@@ -78,6 +89,8 @@ def read_players(
             name = joined.group("name")
             last_join = {"name": name, "at": stamp}
             totals.setdefault(name, _blank())
+            if pending_peers:
+                peer_names[pending_peers.popleft()] = name
             # A duplicate join without a leave keeps the earlier start.
             open_since.setdefault(name, stamp)
             continue
@@ -87,7 +100,25 @@ def read_players(
             close(left.group("name"), stamp)
             continue
 
+        peer_join = _PEER_JOIN.match(message)
+        if peer_join:
+            pending_peers.append(peer_join.group("peer"))
+            continue
+
+        removed = _PEER_REMOVED.match(message)
+        if removed:
+            peer = removed.group("peer")
+            if peer in pending_peers:
+                pending_peers.remove(peer)
+            name = peer_names.pop(peer, None)
+            if name is not None:
+                close(name, stamp)
+            continue
+
         if _RUN_START.match(message) or _RUN_END.match(message):
+            # Peer ids restart with every run.
+            pending_peers.clear()
+            peer_names.clear()
             # A stop or a crash disconnects everyone without emitting [LEAVE].
             for name in list(open_since):
                 close(name, stamp)

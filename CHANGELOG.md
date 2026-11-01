@@ -2,6 +2,22 @@
 
 All notable changes to Factorio Server Control are documented here.
 
+## Unreleased
+
+### Changed
+
+- Factorio units stop restarting after five failed starts within five minutes,
+    so a server that cannot start no longer floods the journal and slows down
+    the FUI server list.
+
+### Fixed
+
+- Players whose connection dropped or timed out stayed online in FUI, because
+    Factorio prints no `[LEAVE]` line for them. Sessions now also end when the
+    player's network peer is removed.
+- **Reset map** is no longer offered for instances without a scenario. Resetting
+    such an instance archived its only save and left it unable to start.
+
 ## 1.2.0 - 2026-10-31
 
 ### Added

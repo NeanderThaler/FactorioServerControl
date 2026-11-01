@@ -13,6 +13,7 @@
 	"server_settings_path": instance.config_dir ~ '/server-settings.json',
 	"port": instance.port,
 	"reset_enabled": not (instance.upload_slot | default(false))
+		and (instance.scenario_name | default('') | length > 0)
 } | to_nice_json }}{{ "," if not loop.last else "" }}
 {% endfor %}
 ]
